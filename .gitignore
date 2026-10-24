@@ -1,0 +1,64 @@
+# ---- Secrets / environment ----
+# Real env files hold OAuth client secrets, DB passwords and the token-encryption key.
+# Only .env.example (placeholders) is committed.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+client_secret*.json
+service-account*.json
+
+# ---- Dependencies ----
+node_modules/
+.pnpm-store/
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+
+# ---- Next.js / build output ----
+.next/
+out/
+build/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+.vercel/
+.turbo/
+
+# ---- Testing ----
+coverage/
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+
+# ---- Prisma / local databases ----
+prisma/*.db
+prisma/*.db-journal
+*.sqlite
+*.sqlite3
+pgdata/
+docker-data/
+
+# ---- Logs ----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+
+# ---- Claude Code local settings (personal, not shared) ----
+.claude/settings.local.json
