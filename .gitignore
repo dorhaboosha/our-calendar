@@ -35,6 +35,8 @@ blob-report/
 .playwright/
 
 # ---- Prisma / local databases ----
+# Generated client (rebuilt by `prisma generate` on npm install)
+src/generated/
 prisma/*.db
 prisma/*.db-journal
 *.sqlite
