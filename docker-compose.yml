@@ -1,0 +1,26 @@
+# Local development database. Production uses Neon (Postgres 16, to match).
+name: our-calendar
+
+services:
+  db:
+    image: postgres:16
+    container_name: our-calendar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: our_calendar
+    ports:
+      # Host port 5436: 5432-5435 are taken on the dev machine (native install, other projects).
+      - "5436:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d our_calendar"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
