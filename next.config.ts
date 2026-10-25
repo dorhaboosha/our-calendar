@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 const nextConfig: NextConfig = {
   // Next.js 16 defaults; both become mandatory in the next major version.
@@ -6,4 +7,6 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
 };
 
-export default nextConfig;
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+
+export default withNextIntl(nextConfig);

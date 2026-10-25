@@ -1,0 +1,23 @@
+{
+  "app": {
+    "name": "היומן שלנו",
+    "description": "יומן משותף לדור ומעיין"
+  },
+  "common": {
+    "loading": "טוען…",
+    "shared": "משותף"
+  },
+  "home": {
+    "title": "היומן",
+    "placeholder": "תצוגת היומן תתווסף בשלב הבא.",
+    "legend": "מקרא צבעים"
+  },
+  "categories": {
+    "work": "עבודה",
+    "vacation": "חופשה",
+    "couple": "אירוע זוגי",
+    "meeting": "פגישה",
+    "personal": "אישי",
+    "other": "אחר"
+  }
+}
