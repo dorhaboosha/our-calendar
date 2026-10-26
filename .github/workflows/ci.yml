@@ -1,0 +1,87 @@
+# Runs every check on each push and on Pull Requests into main.
+# The repository is public, so GitHub Actions minutes are free.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same branch cancels the run in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, types, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # Same major version as docker-compose.yml and the Neon project.
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: our_calendar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d our_calendar_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    # Placeholder values only. CI never talks to Google or a real database.
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/our_calendar_test
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/our_calendar_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/our_calendar_test
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: ci-only-secret-not-used-anywhere-else-0123456789
+      USER_EMAIL_DOR: dor@ci.test
+      USER_EMAIL_MAAYAN: maayan@ci.test
+      GOOGLE_CLIENT_ID: ci-client-id
+      GOOGLE_CLIENT_SECRET: ci-client-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Also generates the Prisma client (postinstall).
+      - run: npm ci
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Types
+        run: npm run typecheck
+
+      - name: Unit and integration tests
+        run: npm test
+
+      # Builds the app and runs the browser tests against it, in the preinstalled Chrome.
+      - name: End-to-end tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

@@ -8,7 +8,19 @@ const eslintConfig = defineConfig([
   ...nextTs,
   // Formatting is Prettier's job; turn off ESLint rules that conflict with it.
   prettier,
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
+  {
+    // Playwright fixtures receive a function named `use`, which is not React's use().
+    files: ["tests/e2e/**"],
+    rules: { "react-hooks/rules-of-hooks": "off" },
+  },
+  globalIgnores([
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "playwright-report/**",
+    "test-results/**",
+  ]),
 ]);
 
 export default eslintConfig;
