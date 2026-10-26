@@ -1,6 +1,31 @@
+import type { Page } from "@playwright/test";
 import { expect, headerDotColor, savedColor, test } from "./fixtures";
 
 const PURPLE = { hex: "#7e22ce", rgb: "rgb(126, 34, 206)" };
+
+function hexToRgb(hex: string) {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+}
+
+/**
+ * Picks a color and waits until the preview shows it. Retries, because an input made
+ * before React has hydrated the form is lost (a real user is never that fast).
+ */
+async function chooseColor(page: Page, hex: string, how: "swatch" | "custom") {
+  await expect(async () => {
+    if (how === "swatch") await page.getByRole("radio", { name: hex }).click();
+    else {
+      // Fill a different value first: re-filling the value the field already holds
+      // (from a lost attempt) fires no change in React.
+      await page.locator("#custom-color").fill("#000000");
+      await page.locator("#custom-color").fill(hex);
+    }
+    await expect(page.getByTestId("color-preview")).toHaveCSS("background-color", hexToRgb(hex), {
+      timeout: 1000,
+    });
+  }).toPass();
+}
 
 test("choosing a color updates the header, the legend and the database", async ({
   page,
@@ -11,8 +36,7 @@ test("choosing a color updates the header, the legend and the database", async (
   await page.getByRole("banner").getByRole("link", { name: "הגדרות" }).click();
   await expect(page.getByRole("heading", { name: "הצבע שלי" })).toBeVisible();
 
-  await page.getByRole("radio", { name: PURPLE.hex }).click();
-  await expect(page.getByTestId("color-preview")).toHaveCSS("background-color", PURPLE.rgb);
+  await chooseColor(page, PURPLE.hex, "swatch");
   await page.getByRole("button", { name: "שמירה" }).click();
   await expect(page.getByRole("status")).toHaveText("נשמר");
   await expect.poll(() => headerDotColor(page)).toBe(PURPLE.rgb);
@@ -37,11 +61,11 @@ test("the other user's color is not available, and too-close colors are refused"
   await expect(taken).toBeDisabled();
   await expect(taken).toHaveAccessibleName(/תפוס/);
 
-  await page.locator("#custom-color").fill("#c0185f");
+  await chooseColor(page, "#c0185f", "custom");
   await page.getByRole("button", { name: "שמירה" }).click();
   await expect(page.getByRole("status")).toHaveText("הצבע דומה מדי לצבע של מעיין. בחרו צבע אחר.");
 
-  await page.locator("#custom-color").fill("#fafafa");
+  await chooseColor(page, "#fafafa", "custom");
   await page.getByRole("button", { name: "שמירה" }).click();
   await expect(page.getByRole("status")).toContainText("בהיר מדי");
 

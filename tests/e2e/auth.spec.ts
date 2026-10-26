@@ -33,13 +33,20 @@ test.describe("signed out", () => {
   test("the Google button starts sign-in at Google", async ({ page }) => {
     await page.goto("/login");
     // Stop at Google: only check that the app sent the browser there with our callback.
-    const googleRequest = page.waitForRequest((request) =>
-      request.url().startsWith("https://accounts.google.com/"),
-    );
-    await page.route("https://accounts.google.com/**", (route) => route.abort());
-    await page.getByRole("button", { name: "התחברות עם Google" }).click();
-    const url = new URL((await googleRequest).url());
-    expect(url.searchParams.get("redirect_uri")).toBe(
+    let googleUrl: URL | undefined;
+    await page.route("https://accounts.google.com/**", (route) => {
+      googleUrl = new URL(route.request().url());
+      return route.abort();
+    });
+    // Retried: a click before React has hydrated the button does nothing. Once a click
+    // has worked, the page is on its way to Google and the button is gone.
+    await expect(async () => {
+      if (!googleUrl) {
+        await page.getByRole("button", { name: "התחברות עם Google" }).click({ timeout: 1000 });
+      }
+      await expect.poll(() => googleUrl, { timeout: 3000 }).toBeDefined();
+    }).toPass();
+    expect(googleUrl!.searchParams.get("redirect_uri")).toBe(
       "http://localhost:3100/api/auth/callback/google",
     );
   });
@@ -67,8 +74,11 @@ test.describe("signed in", () => {
   test("sign out ends the session", async ({ page, signInAs }) => {
     await signInAs("dor");
     await page.goto("/");
-    await page.getByRole("button", { name: "התנתקות" }).click();
-    await expect(page).toHaveURL(/\/login$/);
+    // Retried: a click before React has hydrated the button does nothing.
+    await expect(async () => {
+      await page.getByRole("button", { name: "התנתקות" }).click({ timeout: 1000 });
+      await expect(page).toHaveURL(/\/login$/, { timeout: 2000 });
+    }).toPass();
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/login$/);
