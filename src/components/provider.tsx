@@ -8,6 +8,7 @@ import {
   defineConfig,
 } from "@chakra-ui/react";
 import type { ReactNode } from "react";
+import { EmotionRegistry } from "./emotion-registry";
 
 const system = createSystem(
   defaultConfig,
@@ -26,8 +27,10 @@ const system = createSystem(
 /** Chakra theme plus the locale, which Chakra's components use for RTL-aware behavior. */
 export function Provider({ locale, children }: { locale: string; children: ReactNode }) {
   return (
-    <ChakraProvider value={system}>
-      <LocaleProvider locale={locale}>{children}</LocaleProvider>
-    </ChakraProvider>
+    <EmotionRegistry>
+      <ChakraProvider value={system}>
+        <LocaleProvider locale={locale}>{children}</LocaleProvider>
+      </ChakraProvider>
+    </EmotionRegistry>
   );
 }
