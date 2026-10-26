@@ -16,6 +16,10 @@
       "generic": "ההתחברות נכשלה. נסו שוב."
     }
   },
+  "header": {
+    "signedInAs": "שלום, {name}",
+    "signOut": "התנתקות"
+  },
   "home": {
     "title": "היומן",
     "placeholder": "תצוגת היומן תתווסף בשלב הבא.",

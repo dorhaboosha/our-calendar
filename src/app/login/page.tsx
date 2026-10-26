@@ -1,6 +1,8 @@
 import { Center, Heading, Spinner, Stack, Text } from "@chakra-ui/react";
+import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
+import { getCurrentUser } from "@/modules/auth/current-user";
 import { NOT_ALLOWED } from "@/modules/auth/hooks";
 import { GoogleSignInButton } from "./google-sign-in-button";
 
@@ -16,8 +18,11 @@ export default function LoginPage({ searchParams }: PageProps<"/login">) {
   );
 }
 
-// Reads ?error=..., which is request-time data, so it renders behind the Suspense boundary.
+// Reads the session and ?error=..., which are request-time data, so it renders
+// behind the Suspense boundary.
 async function LoginContent({ searchParams }: Pick<PageProps<"/login">, "searchParams">) {
+  if (await getCurrentUser()) redirect("/");
+
   const t = await getTranslations("login");
   const { error } = await searchParams;
 
