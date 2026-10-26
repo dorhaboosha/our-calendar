@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { getUserConfig } from "@/config/app.config";
 import { auth } from "@/lib/auth";
 
@@ -12,8 +13,11 @@ export type CurrentUser = {
   color: string;
 };
 
-/** The signed-in user, or null. Validates the session cookie against the database. */
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+/**
+ * The signed-in user, or null. Validates the session cookie against the database.
+ * Wrapped in React's cache(): the layout and the page share one lookup per request.
+ */
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) return null;
 
@@ -28,7 +32,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     displayName: config.displayName,
     color: color ?? config.defaultColor,
   };
-}
+});
 
 /** The server-side authorization check: use it in every protected page, action and route. */
 export async function requireUser(): Promise<CurrentUser> {
