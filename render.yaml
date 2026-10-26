@@ -1,0 +1,40 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Creates the web service. The database is a separate Neon project (Postgres 16,
+# region aws-eu-central-1, Frankfurt), connected through DATABASE_URL / DIRECT_URL.
+services:
+  - type: web
+    name: our-calendar
+    runtime: node # version from package.json "engines" (24.x)
+    plan: free # sleeps after 15 minutes without traffic; upgrading needs no code change
+    # Same region as the Neon database. Cannot be changed after creation.
+    region: frankfurt
+    branch: main
+    # Deploy only after the GitHub Actions CI checks on main have passed.
+    autoDeployTrigger: checksPass
+    # Migrations run in the build: the pre-deploy command is paid-plan only. They run
+    # after a successful build, so a broken build never migrates the database.
+    buildCommand: npm ci && npm run build && npx prisma migrate deploy
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    envVars:
+      # Neon pooled connection string (host contains "-pooler"), used by the app.
+      - key: DATABASE_URL
+        sync: false
+      # Neon direct connection string, used by migrations.
+      - key: DIRECT_URL
+        sync: false
+      # The service's public URL, e.g. https://our-calendar.onrender.com
+      - key: BETTER_AUTH_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: USER_EMAIL_DOR
+        sync: false
+      - key: USER_EMAIL_MAAYAN
+        sync: false
+      # From a separate "production" OAuth client in Google Cloud, whose redirect URI is
+      # <BETTER_AUTH_URL>/api/auth/callback/google
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
