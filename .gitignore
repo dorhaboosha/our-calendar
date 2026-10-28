@@ -35,6 +35,8 @@ blob-report/
 .playwright/
 
 # ---- Prisma / local databases ----
+# Generated client (rebuilt by `prisma generate` on npm install)
+src/generated/
 prisma/*.db
 prisma/*.db-journal
 *.sqlite
@@ -62,3 +64,6 @@ desktop.ini
 
 # ---- Claude Code local settings (personal, not shared) ----
 .claude/settings.local.json
+
+# Google spike output (calendar ids, results)
+scripts/google-spike/output/
