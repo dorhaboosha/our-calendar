@@ -99,7 +99,11 @@ test.describe("signed in", () => {
 
   test("sign out ends the session", async ({ page, signInAs }) => {
     await signInAs("dor");
+    // Wait for the calendar's first request, like a user who looks before signing out;
+    // signing out mid-request would (correctly) answer it with 401.
+    const eventsLoaded = page.waitForResponse((response) => response.url().includes("/api/events"));
     await page.goto("/");
+    await eventsLoaded;
     // Retried: a click before React has hydrated the button does nothing.
     await expect(async () => {
       await page.getByRole("button", { name: "התנתקות" }).click({ timeout: 1000 });

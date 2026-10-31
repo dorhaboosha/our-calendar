@@ -1,0 +1,23 @@
+/* FullCalendar's classic theme, adjusted to the app: same font, and the app's colors
+   for "today" and buttons. */
+:root {
+  --fc-classic-button: #334155;
+  --fc-classic-button-border: #334155;
+  --fc-classic-today: #facc1526;
+}
+
+[data-testid="calendar"] {
+  font-family: var(--font-heebo), system-ui, sans-serif;
+}
+
+/* Phones: a smaller toolbar title, and toolbar sections wrap instead of overflowing. */
+@media (max-width: 640px) {
+  [data-testid="calendar"] h2 {
+    font-size: 1.1rem;
+  }
+  [data-testid="calendar"] [role="toolbar"],
+  [data-testid="calendar"] .fc-classic-toolbar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}

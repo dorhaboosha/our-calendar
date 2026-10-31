@@ -31,6 +31,48 @@ export async function savedColor(key: UserKey): Promise<string | null> {
   return rows[0]?.color ?? null;
 }
 
+type TestEvent = {
+  title: string;
+  /** A user key, or "shared". */
+  owner: UserKey | "shared";
+  category?: string;
+} & (
+  | { start: string; end: string } // ISO instants: a timed event
+  | { startDate: string; endDate: string } // "YYYY-MM-DD", end exclusive: all day
+);
+
+/**
+ * Inserts an event straight into the test database, created by its owner (or by Dor
+ * for a shared event). The owner must have signed in already (signInAs).
+ */
+export async function insertEvent(event: TestEvent) {
+  const creator = event.owner === "shared" ? "dor" : event.owner;
+  const { rows } = await db.query<{ id: string }>('SELECT id FROM "user" WHERE "configKey" = $1', [
+    creator,
+  ]);
+  if (!rows[0]) throw new Error(`insertEvent: "${creator}" must sign in first`);
+  const userId = rows[0].id;
+  const allDay = "startDate" in event;
+  await db.query(
+    `INSERT INTO "event" (id, title, "ownerType", "ownerUserId", category, "isAllDay",
+       "startAt", "endAt", "startDate", "endDate", "createdByUserId", "updatedByUserId", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, now())`,
+    [
+      randomUUID(),
+      event.title,
+      event.owner === "shared" ? "SHARED" : "USER",
+      event.owner === "shared" ? null : userId,
+      event.category ?? "other",
+      allDay,
+      allDay ? null : event.start,
+      allDay ? null : event.end,
+      allDay ? event.startDate : null,
+      allDay ? event.endDate : null,
+      userId,
+    ],
+  );
+}
+
 /** The value of a Better Auth session cookie: the token, signed with the app secret. */
 function signedCookieValue(token: string) {
   const signature = createHmac("sha256", E2E_ENV.BETTER_AUTH_SECRET).update(token).digest("base64");
