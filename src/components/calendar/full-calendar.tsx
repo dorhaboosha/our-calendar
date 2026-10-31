@@ -10,6 +10,8 @@ import FullCalendar, {
   type CalendarRef,
   type DateClickInfo,
   type DatesSetInfo,
+  type DayCellInfo,
+  type DayLaneInfo,
   type EventDisplayInfo,
   type EventInput,
   type EventSourceFuncInfo,
@@ -70,6 +72,9 @@ export function Calendar({
   const [currentDate, setCurrentDate] = useState(
     initial.date ?? toLocal(new Date(), appConfig.timeZone).date,
   );
+  // The date chosen in the date picker, outlined in the month and week views so it is
+  // clear where the calendar jumped to. Cleared by any other navigation.
+  const [pickedDate, setPickedDate] = useState<string | null>(null);
 
   // After every navigation: remember the view and date in the URL (replacing the current
   // history entry, so Back still leaves the calendar) and update the date picker.
@@ -80,6 +85,8 @@ export function Calendar({
     // getDate() is a real instant; its local date is the calendar's current day.
     const date = toLocal(info.view.calendar.getDate(), appConfig.timeZone).date;
     setCurrentDate(date);
+    // Switching views keeps the picked date; the arrows and "today" move away from it.
+    setPickedDate((picked) => (picked === date ? picked : null));
     const today = toLocal(new Date(), appConfig.timeZone).date;
     const search = writeCalendarPlace(window.location.search, {
       view,
@@ -117,8 +124,21 @@ export function Calendar({
   function goToDate(value: string) {
     setCurrentDate(value);
     // An incomplete date while typing is ignored until it is a real date.
-    if (isLocalDate(value)) calendarRef.current?.getApi().gotoDate(value);
+    if (!isLocalDate(value)) return;
+    setPickedDate(value);
+    calendarRef.current?.getApi().gotoDate(value);
   }
+
+  // Day cells (month view) and day columns (week view) get a class for the picked date.
+  const pickedDateClass = useCallback(
+    (info: DayCellInfo | DayLaneInfo) =>
+      pickedDate &&
+      info.view.type !== CALENDAR_VIEWS.day &&
+      toLocal(info.date, appConfig.timeZone).date === pickedDate
+        ? "picked-date"
+        : "",
+    [pickedDate],
+  );
 
   // Loads the events of the dates on screen; FullCalendar calls it on every navigation.
   const fetchEvents = useCallback(
@@ -222,6 +242,8 @@ export function Calendar({
         events={fetchEvents}
         eventSourceFailure={() => setLoadFailed(true)}
         eventContent={renderEvent}
+        dayCellClass={pickedDateClass}
+        dayLaneClass={pickedDateClass}
         eventTimeFormat={TIME_FORMAT}
         slotHeaderFormat={TIME_FORMAT}
         dayMaxEvents

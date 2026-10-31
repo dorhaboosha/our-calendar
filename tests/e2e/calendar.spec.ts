@@ -186,4 +186,23 @@ test.describe("navigation", () => {
     await page.getByTestId("calendar").getByRole("button", { name: /היום/ }).click();
     await expect(picker).toHaveValue("2026-11-05");
   });
+
+  test("the picked date is outlined in the month and week views", async ({ page }) => {
+    await page.goto("/?view=month");
+    const calendar = page.getByTestId("calendar");
+    const picked = calendar.locator(".picked-date");
+    await expect(picked).toHaveCount(0);
+
+    await page.getByLabel("מעבר לתאריך").fill("2027-03-26");
+    await expect(picked).toHaveCount(1);
+    await expect(picked).toHaveAttribute("data-date", "2027-03-26");
+    await expect(picked).toHaveCSS("outline-style", "solid");
+
+    // Switching to the week view keeps it; the arrows move away and clear it.
+    await calendar.getByRole("tab", { name: "שבוע" }).click();
+    await expect(picked.first()).toHaveAttribute("data-date", "2027-03-26");
+    await calendar.getByRole("button", { name: /הבא/ }).click();
+    await calendar.getByRole("button", { name: /הקודם/ }).click();
+    await expect(picked).toHaveCount(0);
+  });
 });

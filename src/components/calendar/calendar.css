@@ -10,6 +10,13 @@
   font-family: var(--font-heebo), system-ui, sans-serif;
 }
 
+/* The date chosen in the date picker: outlined inside the cell, so it doesn't shift the
+   grid and still shows on top of today's highlight. */
+[data-testid="calendar"] .picked-date {
+  outline: 2px solid var(--fc-classic-button);
+  outline-offset: -2px;
+}
+
 /* Phones: a smaller toolbar title, and toolbar sections wrap instead of overflowing. */
 @media (max-width: 640px) {
   [data-testid="calendar"] h2 {
