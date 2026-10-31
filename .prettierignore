@@ -1,3 +1,6 @@
 # Prose documents are formatted by hand.
 *.md
 package-lock.json
+
+# Google Search Console verification file: must stay byte-for-byte as Google issued it.
+public/google*.html

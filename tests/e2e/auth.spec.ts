@@ -13,6 +13,24 @@ test.describe("signed out", () => {
     await expect(page.getByRole("button", { name: "התחברות עם Google" })).toBeVisible();
   });
 
+  test("the login page says what the site is and that Google handles the password", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    await expect(page.getByText("יומן פרטי ומשותף של דור ומעיין.", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("האתר הזה לא מבקש ולא שומר סיסמאות", { exact: false }),
+    ).toBeVisible();
+  });
+
+  test("serves the Google Search Console verification file without a redirect", async ({
+    request,
+  }) => {
+    const response = await request.get("/google4e80a75d4e54cc97.html", { maxRedirects: 0 });
+    expect(response.status()).toBe(200);
+    expect(await response.text()).toBe("google-site-verification: google4e80a75d4e54cc97.html");
+  });
+
   test("shows the not-allowed message after a rejected sign-in", async ({ page }) => {
     await page.goto("/login?error=not_allowed");
     // Scoped to the page content: Next.js's route announcer is also role="alert".
