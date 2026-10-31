@@ -115,6 +115,27 @@ Before the first deploy:
 On the free plan the service sleeps after 15 minutes without traffic, so the first visit
 after that takes up to a minute. Moving to a paid plan needs no code changes.
 
+### Production
+
+- App: <https://our-calendar-ay05.onrender.com> (the name `our-calendar` was taken on
+  Render, so the URL has a suffix). Health: `/api/health`.
+- Database: Neon project `our-calendar`, Frankfurt, Postgres 16, database `our_calendar`.
+- Google Cloud project `our-calendar-512817`: OAuth clients "Our Calendar (local dev)"
+  and "Our Calendar (production)". The OAuth app is **In production** (not Testing), so
+  refresh tokens don't expire after 7 days. Branding: home page `/login`, privacy
+  policy `/privacy`. All scopes are non-sensitive, so no Google verification is needed.
+- Google Search Console verifies the site with `public/google4e80a75d4e54cc97.html`.
+  Don't remove that file.
+
+### Chrome "Dangerous site" warning
+
+Right after the first deploy, Google Safe Browsing flagged the site as "Deceptive pages",
+a common false positive for a new site whose whole page is a Google sign-in button.
+Done so far: a false-positive report to Safe Browsing, a review request in Search
+Console, and a login page that says what the site is and links to the privacy policy.
+If it happens again, request a review in Search Console > Security issues. The lasting
+fix is a custom domain instead of `onrender.com`.
+
 ## Project structure
 
 ```
