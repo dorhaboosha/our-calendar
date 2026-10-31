@@ -31,6 +31,14 @@ test.describe("signed out", () => {
     expect(await response.text()).toBe("google-site-verification: google4e80a75d4e54cc97.html");
   });
 
+  test("the privacy policy is public and linked from the login page", async ({ page }) => {
+    await page.goto("/login");
+    await page.getByRole("link", { name: "מדיניות פרטיות" }).click();
+    await expect(page).toHaveURL(/\/privacy$/);
+    await expect(page.getByRole("heading", { level: 1, name: "מדיניות פרטיות" })).toBeVisible();
+    await expect(page.getByText("Limited Use requirements")).toBeVisible();
+  });
+
   test("shows the not-allowed message after a rejected sign-in", async ({ page }) => {
     await page.goto("/login?error=not_allowed");
     // Scoped to the page content: Next.js's route announcer is also role="alert".

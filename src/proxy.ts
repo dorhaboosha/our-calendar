@@ -11,7 +11,7 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the login page, API routes (they answer 401 themselves),
-  // Next.js internals and files with an extension (favicon, images).
-  matcher: ["/((?!login|api|_next/static|_next/image|.*\\..*).*)"],
+  // Everything except the public pages (login, privacy), API routes (they answer 401
+  // themselves), Next.js internals and files with an extension (favicon, images).
+  matcher: ["/((?!login|privacy|api|_next/static|_next/image|.*\\..*).*)"],
 };
