@@ -33,8 +33,9 @@ describe("proxy matcher", () => {
     expect(matches("/settings")).toBe(true);
   });
 
-  it("skips the login page, API routes, Next.js internals and static files", () => {
+  it("skips the public pages, API routes, Next.js internals and static files", () => {
     expect(matches("/login")).toBe(false);
+    expect(matches("/privacy")).toBe(false);
     expect(matches("/api/auth/get-session")).toBe(false);
     expect(matches("/_next/static/chunk.js")).toBe(false);
     expect(matches("/favicon.ico")).toBe(false);

@@ -1,4 +1,5 @@
-import { Center, Heading, Spinner, Stack, Text } from "@chakra-ui/react";
+import { Center, Heading, Link, Spinner, Stack, Text } from "@chakra-ui/react";
+import NextLink from "next/link";
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
@@ -41,6 +42,9 @@ async function LoginContent({ searchParams }: Pick<PageProps<"/login">, "searchP
       <Text color="fg.muted" fontSize="sm">
         {t("googleNote")}
       </Text>
+      <Link asChild colorPalette="blue" fontSize="sm" mx="auto">
+        <NextLink href="/privacy">{t("privacyLink")}</NextLink>
+      </Link>
     </>
   );
 }
