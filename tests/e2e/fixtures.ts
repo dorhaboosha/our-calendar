@@ -16,8 +16,12 @@ export const db = new pg.Pool({
   allowExitOnIdle: true,
 });
 
-/** Removes all users (sessions and accounts cascade) so every test starts clean. */
+/**
+ * Removes all events and users (sessions and accounts cascade) so every test starts
+ * clean. Events go first: a user who still has events can't be deleted.
+ */
 export async function resetDatabase() {
+  await db.query('DELETE FROM "event"');
   await db.query('DELETE FROM "user"');
 }
 

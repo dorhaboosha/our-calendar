@@ -15,7 +15,7 @@
     "format:check": "prettier --check .",
     "db:up": "docker compose up -d --wait",
     "db:down": "docker compose down",
-    "db:migrate": "prisma migrate dev",
+    "db:migrate": "prisma migrate dev && prisma generate",
     "db:studio": "prisma studio",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
