@@ -85,6 +85,22 @@
     },
     "back": "חזרה לדף הכניסה"
   },
+  "events": {
+    "errors": {
+      "titleRequired": "יש לכתוב כותרת.",
+      "titleTooLong": "הכותרת ארוכה מדי (עד 200 תווים).",
+      "locationTooLong": "המיקום ארוך מדי (עד 300 תווים).",
+      "descriptionTooLong": "התיאור ארוך מדי (עד 5,000 תווים).",
+      "categoryInvalid": "יש לבחור קטגוריה.",
+      "ownerInvalid": "יש לבחור למי שייך האירוע.",
+      "dateInvalid": "התאריך אינו תקין.",
+      "timeRequired": "יש לבחור שעה.",
+      "timeInvalid": "השעה אינה תקינה.",
+      "endBeforeStart": "תאריך הסיום לא יכול להיות לפני תאריך ההתחלה.",
+      "endNotAfterStart": "שעת הסיום צריכה להיות אחרי שעת ההתחלה.",
+      "tooLong": "האירוע ארוך מדי (עד שנה)."
+    }
+  },
   "categories": {
     "work": "עבודה",
     "vacation": "חופשה",
