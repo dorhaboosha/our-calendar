@@ -29,6 +29,8 @@ async function LoginContent({ searchParams }: Pick<PageProps<"/login">, "searchP
   return (
     <>
       <Heading size="2xl">{t("title")}</Heading>
+      {/* Says plainly what the site is, so the page doesn't read like a fake Google login. */}
+      <Text>{t("about")}</Text>
       <Text color="fg.muted">{t("subtitle")}</Text>
       {error && (
         <Text role="alert" color="fg.error">
@@ -36,6 +38,9 @@ async function LoginContent({ searchParams }: Pick<PageProps<"/login">, "searchP
         </Text>
       )}
       <GoogleSignInButton label={t("google")} />
+      <Text color="fg.muted" fontSize="sm">
+        {t("googleNote")}
+      </Text>
     </>
   );
 }
