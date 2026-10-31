@@ -5,20 +5,24 @@ import "@fullcalendar/react/themes/classic/theme.css";
 import "@fullcalendar/react/themes/classic/palette.css";
 import "./calendar.css";
 
-import { Box, Field, Input, Text } from "@chakra-ui/react";
+import { Box, Button, Field, HStack, Input, Text } from "@chakra-ui/react";
 import FullCalendar, {
   type CalendarRef,
+  type DateClickInfo,
   type DatesSetInfo,
   type EventDisplayInfo,
   type EventInput,
   type EventSourceFuncInfo,
 } from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/react/daygrid";
+import interactionPlugin from "@fullcalendar/react/interaction";
 import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import { useCallback, useRef, useState } from "react";
 import { appConfig } from "@/config/app.config";
+import { EventFormDialog } from "@/components/events/event-form-dialog";
 import type { CalendarEvent } from "@/modules/events/events";
+import { type EventFormValues, type NewEventClick, newEventValues } from "@/modules/events/form";
 import { isLocalDate, toLocal } from "@/modules/events/time";
 import { textColorFor } from "@/modules/users/colors";
 import { fullCalendarLocale } from "./locales";
@@ -37,6 +41,9 @@ export type CalendarProps = {
   categoryLabels: Record<string, string>;
   loadErrorText: string;
   goToDateLabel: string;
+  newEventLabel: string;
+  /** The signed-in user: the default owner of a new event. */
+  currentUserKey: string;
 };
 
 const TIME_FORMAT = { hour: "2-digit", minute: "2-digit", hour12: false } as const;
@@ -46,6 +53,8 @@ export function Calendar({
   categoryLabels,
   loadErrorText,
   goToDateLabel,
+  newEventLabel,
+  currentUserKey,
 }: CalendarProps) {
   const calendarRef = useRef<CalendarRef>(null);
   // Where to open: the URL's view and date, or the defaults. This component renders in
@@ -78,6 +87,32 @@ export function Calendar({
     });
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}`);
   }, []);
+
+  // The open "new event" form, with its starting values; null when closed.
+  const [newEvent, setNewEvent] = useState<EventFormValues | null>(null);
+
+  function openNewEvent(click?: NewEventClick) {
+    const now = new Date();
+    setNewEvent(
+      newEventValues({
+        owner: currentUserKey,
+        category: appConfig.defaultCategory,
+        now,
+        timeZone: appConfig.timeZone,
+        today: toLocal(now, appConfig.timeZone).date,
+        click,
+      }),
+    );
+  }
+
+  // A click on an empty spot: a day in the month view, a time slot or the "all day" row
+  // in the week and day views.
+  function onDateClick(info: DateClickInfo) {
+    const local = toLocal(info.date, appConfig.timeZone);
+    if (info.view.type === CALENDAR_VIEWS.month) openNewEvent({ kind: "day", date: local.date });
+    else if (info.allDay) openNewEvent({ kind: "allDay", date: local.date });
+    else openNewEvent({ kind: "time", date: local.date, time: local.time });
+  }
 
   function goToDate(value: string) {
     setCurrentDate(value);
@@ -146,15 +181,25 @@ export function Calendar({
     // a right-to-left page that overflows into a huge horizontal scroll, so the calendar
     // clips it. "clip", unlike "hidden", keeps the sticky headers working.
     <Box data-testid="calendar" position="relative" overflowX="clip">
-      <Field.Root maxW="xs" mb="3">
-        <Field.Label>{goToDateLabel}</Field.Label>
-        <Input
-          type="date"
-          size="sm"
-          value={currentDate}
-          onChange={(event) => goToDate(event.target.value)}
+      <HStack mb="3" gap="3" align="end" wrap="wrap">
+        <Button onClick={() => openNewEvent()}>{newEventLabel}</Button>
+        <Field.Root maxW="xs">
+          <Field.Label>{goToDateLabel}</Field.Label>
+          <Input
+            type="date"
+            size="sm"
+            value={currentDate}
+            onChange={(event) => goToDate(event.target.value)}
+          />
+        </Field.Root>
+      </HStack>
+      {newEvent && (
+        <EventFormDialog
+          initialValues={newEvent}
+          onClose={() => setNewEvent(null)}
+          onSaved={() => calendarRef.current?.getApi().refetchEvents()}
         />
-      </Field.Root>
+      )}
       {loadFailed && (
         <Text role="alert" color="fg.error" mb="3">
           {loadErrorText}
@@ -162,7 +207,8 @@ export function Calendar({
       )}
       <FullCalendar
         ref={calendarRef}
-        plugins={[dayGridPlugin, timeGridPlugin, classicThemePlugin]}
+        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, classicThemePlugin]}
+        dateClick={onDateClick}
         locale={fullCalendarLocale(appConfig.locale)}
         direction={appConfig.direction}
         timeZone={appConfig.timeZone}

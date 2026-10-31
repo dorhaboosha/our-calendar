@@ -105,6 +105,25 @@
       "ownerNotSignedIn": "אי אפשר לשייך אירוע ל{name} לפני הכניסה הראשונה של {name} ליומן."
     }
   },
+  "eventForm": {
+    "newEvent": "אירוע חדש",
+    "createTitle": "אירוע חדש",
+    "title": "כותרת",
+    "owner": "שייך ל",
+    "category": "קטגוריה",
+    "allDay": "יום שלם",
+    "startDate": "תאריך התחלה",
+    "startTime": "שעת התחלה",
+    "endDate": "תאריך סיום",
+    "endTime": "שעת סיום",
+    "lastDay": "יום אחרון",
+    "location": "מיקום",
+    "description": "תיאור",
+    "optional": "(לא חובה)",
+    "cancel": "ביטול",
+    "close": "סגירה",
+    "saveFailed": "השמירה נכשלה. בדקו את החיבור לאינטרנט ונסו שוב."
+  },
   "categories": {
     "work": "עבודה",
     "vacation": "חופשה",

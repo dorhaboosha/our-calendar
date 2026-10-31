@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { CalendarView } from "@/components/calendar/calendar-view";
 import { appConfig } from "@/config/app.config";
 import { textColorFor } from "@/modules/users/colors";
+import { requireUser } from "@/modules/auth/current-user";
 import { SHARED_OWNER } from "@/modules/events/validation";
 import { listCalendarUsers } from "@/modules/users/users";
 
@@ -36,6 +37,7 @@ export default function HomePage() {
 /** The calendar, with each owner's current color and the category labels. */
 async function Calendar() {
   const t = await getTranslations();
+  const user = await requireUser();
   const users = await listCalendarUsers();
   const ownerColors: Record<string, string> = {
     ...Object.fromEntries(users.map((user) => [user.configKey, user.color])),
@@ -50,6 +52,8 @@ async function Calendar() {
       categoryLabels={categoryLabels}
       loadErrorText={t("home.loadError")}
       goToDateLabel={t("home.goToDate")}
+      newEventLabel={t("eventForm.newEvent")}
+      currentUserKey={user.configKey}
     />
   );
 }
