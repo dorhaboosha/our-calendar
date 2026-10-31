@@ -1,0 +1,7 @@
+# Keep LF line endings in the working tree on every OS, matching Prettier (endOfLine: lf).
+* text=auto eol=lf
+
+# Binary files
+*.ico binary
+*.png binary
+*.jpg binary
