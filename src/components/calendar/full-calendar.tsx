@@ -5,8 +5,10 @@ import "@fullcalendar/react/themes/classic/theme.css";
 import "@fullcalendar/react/themes/classic/palette.css";
 import "./calendar.css";
 
-import { Box, Text } from "@chakra-ui/react";
+import { Box, Field, Input, Text } from "@chakra-ui/react";
 import FullCalendar, {
+  type CalendarRef,
+  type DatesSetInfo,
   type EventDisplayInfo,
   type EventInput,
   type EventSourceFuncInfo,
@@ -14,11 +16,19 @@ import FullCalendar, {
 import dayGridPlugin from "@fullcalendar/react/daygrid";
 import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { appConfig } from "@/config/app.config";
 import type { CalendarEvent } from "@/modules/events/events";
+import { isLocalDate, toLocal } from "@/modules/events/time";
 import { textColorFor } from "@/modules/users/colors";
 import { fullCalendarLocale } from "./locales";
+import {
+  CALENDAR_VIEWS,
+  PHONE_MAX_WIDTH,
+  readCalendarPlace,
+  viewNameOf,
+  writeCalendarPlace,
+} from "./url-state";
 
 export type CalendarProps = {
   /** Event color per owner: each user key, plus "shared". */
@@ -26,13 +36,54 @@ export type CalendarProps = {
   /** Hebrew category label per category key. */
   categoryLabels: Record<string, string>;
   loadErrorText: string;
+  goToDateLabel: string;
 };
 
 const TIME_FORMAT = { hour: "2-digit", minute: "2-digit", hour12: false } as const;
 
-export function Calendar({ ownerColors, categoryLabels, loadErrorText }: CalendarProps) {
+export function Calendar({
+  ownerColors,
+  categoryLabels,
+  loadErrorText,
+  goToDateLabel,
+}: CalendarProps) {
+  const calendarRef = useRef<CalendarRef>(null);
+  // Where to open: the URL's view and date, or the defaults. This component renders in
+  // the browser only, so reading window here is safe.
+  const [initial] = useState(() =>
+    readCalendarPlace(
+      window.location.search,
+      window.matchMedia(`(max-width: ${PHONE_MAX_WIDTH}px)`).matches,
+    ),
+  );
   const [loadFailed, setLoadFailed] = useState(false);
-  const [isTimeGrid, setIsTimeGrid] = useState(false);
+  const [isTimeGrid, setIsTimeGrid] = useState(initial.view !== "month");
+  const [currentDate, setCurrentDate] = useState(
+    initial.date ?? toLocal(new Date(), appConfig.timeZone).date,
+  );
+
+  // After every navigation: remember the view and date in the URL (replacing the current
+  // history entry, so Back still leaves the calendar) and update the date picker.
+  const onDatesSet = useCallback((info: DatesSetInfo) => {
+    const view = viewNameOf(info.view.type);
+    setIsTimeGrid(info.view.type.startsWith("timeGrid"));
+    if (!view) return;
+    // getDate() is a real instant; its local date is the calendar's current day.
+    const date = toLocal(info.view.calendar.getDate(), appConfig.timeZone).date;
+    setCurrentDate(date);
+    const today = toLocal(new Date(), appConfig.timeZone).date;
+    const search = writeCalendarPlace(window.location.search, {
+      view,
+      date: date === today ? null : date,
+    });
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}`);
+  }, []);
+
+  function goToDate(value: string) {
+    setCurrentDate(value);
+    // An incomplete date while typing is ignored until it is a real date.
+    if (isLocalDate(value)) calendarRef.current?.getApi().gotoDate(value);
+  }
 
   // Loads the events of the dates on screen; FullCalendar calls it on every navigation.
   const fetchEvents = useCallback(
@@ -95,17 +146,28 @@ export function Calendar({ ownerColors, categoryLabels, loadErrorText }: Calenda
     // a right-to-left page that overflows into a huge horizontal scroll, so the calendar
     // clips it. "clip", unlike "hidden", keeps the sticky headers working.
     <Box data-testid="calendar" position="relative" overflowX="clip">
+      <Field.Root maxW="xs" mb="3">
+        <Field.Label>{goToDateLabel}</Field.Label>
+        <Input
+          type="date"
+          size="sm"
+          value={currentDate}
+          onChange={(event) => goToDate(event.target.value)}
+        />
+      </Field.Root>
       {loadFailed && (
         <Text role="alert" color="fg.error" mb="3">
           {loadErrorText}
         </Text>
       )}
       <FullCalendar
+        ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, classicThemePlugin]}
         locale={fullCalendarLocale(appConfig.locale)}
         direction={appConfig.direction}
         timeZone={appConfig.timeZone}
-        initialView="dayGridMonth"
+        initialView={CALENDAR_VIEWS[initial.view]}
+        initialDate={initial.date ?? undefined}
         headerToolbar={{
           start: "prev,next today",
           center: "title",
@@ -123,7 +185,7 @@ export function Calendar({ ownerColors, categoryLabels, loadErrorText }: Calenda
         scrollTime="08:00:00"
         // Month view grows with its content; day and week views scroll inside a fixed height.
         height={isTimeGrid ? "75vh" : "auto"}
-        datesSet={(info) => setIsTimeGrid(info.view.type.startsWith("timeGrid"))}
+        datesSet={onDatesSet}
       />
     </Box>
   );

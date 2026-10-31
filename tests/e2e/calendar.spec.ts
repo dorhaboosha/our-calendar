@@ -111,8 +111,10 @@ test("shows a message when events can't be loaded", async ({ page, pageErrors })
   pageErrors.splice(0, pageErrors.length, ...pageErrors.filter((error) => !error.includes("500")));
 });
 
-test("the calendar fits a phone screen @mobile", async ({ page }, testInfo) => {
-  await page.goto("/");
+test("the calendar fits a phone screen, in month and day views @mobile", async ({
+  page,
+}, testInfo) => {
+  await page.goto("/?view=month");
   const calendar = page.getByTestId("calendar");
   await expect(calendar.getByRole("heading", { name: "נובמבר 2026" })).toBeVisible();
   const overflow = () =>
@@ -124,4 +126,64 @@ test("the calendar fits a phone screen @mobile", async ({ page }, testInfo) => {
   await expect(event(page, "רופא שיניים")).toBeVisible();
   expect(await overflow()).toBeLessThanOrEqual(0);
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${testInfo.project.name}-day.png` });
+});
+
+test.describe("navigation", () => {
+  const title = (page: import("@playwright/test").Page) =>
+    page.getByTestId("calendar").getByRole("heading", { level: 2 });
+
+  test("opens in month view on a computer, and keeps today out of the URL", async ({ page }) => {
+    test.skip(test.info().project.name === "mobile", "computer only");
+    await page.goto("/");
+    await expect(title(page)).toHaveText("נובמבר 2026");
+    await expect(page).toHaveURL(/\?view=month$/);
+  });
+
+  test("opens in day view on a phone @mobile", async ({ page }) => {
+    test.skip(test.info().project.name !== "mobile", "phone only");
+    await page.goto("/");
+    await expect(title(page)).toHaveText("5 בנובמבר 2026");
+    await expect(event(page, "רופא שיניים")).toBeVisible();
+    await expect(page).toHaveURL(/\?view=day$/);
+  });
+
+  test("keeps the view and date in the URL, so a refresh stays in place", async ({ page }) => {
+    await page.goto("/?view=month");
+    const calendar = page.getByTestId("calendar");
+    await calendar.getByRole("tab", { name: "שבוע" }).click();
+    // "Next" in week view moves to the start of the next week (Sunday 8 November).
+    await calendar.getByRole("button", { name: /הבא/ }).click();
+    await expect(page).toHaveURL(/\?view=week&date=2026-11-08$/);
+
+    await page.reload();
+    await expect(calendar.getByRole("tab", { name: "שבוע" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    await expect(event(page, "חופשה")).toBeVisible();
+  });
+
+  test("opens the place in a shared link", async ({ page }) => {
+    await page.goto("/?view=day&date=2026-11-12");
+    await expect(title(page)).toHaveText("12 בנובמבר 2026");
+    await expect(event(page, "חופשה")).toBeVisible();
+  });
+
+  test("ignores an invalid view or date in the URL", async ({ page }) => {
+    await page.goto("/?view=year&date=2026-02-30");
+    await expect(title(page)).toHaveText(/נובמבר 2026/);
+  });
+
+  test("the date picker jumps to any date", async ({ page }) => {
+    await page.goto("/?view=month");
+    const picker = page.getByLabel("מעבר לתאריך");
+    await expect(picker).toHaveValue("2026-11-05");
+    await picker.fill("2027-03-26");
+    await expect(title(page)).toHaveText("מרץ 2027");
+    await expect(page).toHaveURL(/\?view=month&date=2027-03-26$/);
+
+    // Navigating with the arrows updates the picker too.
+    await page.getByTestId("calendar").getByRole("button", { name: /היום/ }).click();
+    await expect(picker).toHaveValue("2026-11-05");
+  });
 });

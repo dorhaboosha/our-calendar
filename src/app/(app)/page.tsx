@@ -49,6 +49,7 @@ async function Calendar() {
       ownerColors={ownerColors}
       categoryLabels={categoryLabels}
       loadErrorText={t("home.loadError")}
+      goToDateLabel={t("home.goToDate")}
     />
   );
 }
