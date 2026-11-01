@@ -17,18 +17,25 @@ export const db = new pg.Pool({
 });
 
 /**
- * Removes all events and users (sessions and accounts cascade) so every test starts
- * clean. Events go first: a user who still has events can't be deleted.
+ * Removes all events, users (sessions and accounts cascade) and shared settings so
+ * every test starts clean. Events go first: a user who still has events can't be deleted.
  */
 export async function resetDatabase() {
   await db.query('DELETE FROM "event"');
   await db.query('DELETE FROM "user"');
+  await db.query('DELETE FROM "shared_settings"');
 }
 
 /** The color saved for a user, or null for the default. */
 export async function savedColor(key: UserKey): Promise<string | null> {
   const { rows } = await db.query('SELECT color FROM "user" WHERE "configKey" = $1', [key]);
   return rows[0]?.color ?? null;
+}
+
+/** The shared-events color picked in settings, or null for the default. */
+export async function savedSharedColor(): Promise<string | null> {
+  const { rows } = await db.query('SELECT "sharedColor" FROM "shared_settings"');
+  return rows[0]?.sharedColor ?? null;
 }
 
 type TestEvent = {

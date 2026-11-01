@@ -7,7 +7,7 @@ import { appConfig } from "@/config/app.config";
 import { textColorFor } from "@/modules/users/colors";
 import { requireUser } from "@/modules/auth/current-user";
 import { SHARED_OWNER } from "@/modules/events/validation";
-import { listCalendarUsers } from "@/modules/users/users";
+import { getSharedColor, listCalendarUsers } from "@/modules/users/users";
 
 // The page itself reads no data, so it renders at once on navigation; data parts
 // stream in behind their own Suspense boundaries.
@@ -38,10 +38,10 @@ export default function HomePage() {
 async function Calendar() {
   const t = await getTranslations();
   const user = await requireUser();
-  const users = await listCalendarUsers();
+  const [users, sharedColor] = await Promise.all([listCalendarUsers(), getSharedColor()]);
   const ownerColors: Record<string, string> = {
     ...Object.fromEntries(users.map((user) => [user.configKey, user.color])),
-    [SHARED_OWNER]: appConfig.sharedColor,
+    [SHARED_OWNER]: sharedColor,
   };
   const categoryLabels = Object.fromEntries(
     appConfig.categories.map((category) => [category.key, t(`categories.${category.key}`)]),
@@ -60,10 +60,10 @@ async function Calendar() {
 
 async function ColorLegend() {
   const t = await getTranslations();
-  const users = await listCalendarUsers();
+  const [users, sharedColor] = await Promise.all([listCalendarUsers(), getSharedColor()]);
   const legend = [
     ...users.map((user) => ({ label: user.displayName, color: user.color })),
-    { label: t("common.shared"), color: appConfig.sharedColor },
+    { label: t("common.shared"), color: sharedColor },
   ];
 
   return (

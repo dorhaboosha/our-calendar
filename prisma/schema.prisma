@@ -128,3 +128,16 @@ model Event {
   @@index([ownerUserId])
   @@map("event")
 }
+
+// ---- Settings shared by both users ----
+
+/// A single row (id 1, enforced by a CHECK constraint) of settings that belong to both
+/// users rather than to one of them.
+model SharedSettings {
+  id          Int      @id @default(1)
+  /// Color of shared events; null means the config default.
+  sharedColor String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("shared_settings")
+}
