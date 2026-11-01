@@ -108,6 +108,7 @@
   "eventForm": {
     "newEvent": "אירוע חדש",
     "createTitle": "אירוע חדש",
+    "editTitle": "עריכת אירוע",
     "title": "כותרת",
     "owner": "שייך ל",
     "category": "קטגוריה",
@@ -123,6 +124,26 @@
     "cancel": "ביטול",
     "close": "סגירה",
     "saveFailed": "השמירה נכשלה. בדקו את החיבור לאינטרנט ונסו שוב."
+  },
+  "eventDetails": {
+    "allDay": "יום שלם",
+    "owner": "שייך ל",
+    "category": "קטגוריה",
+    "location": "מיקום",
+    "description": "תיאור",
+    "createdBy": "נוצר על ידי {name}",
+    "updatedBy": "נערך לאחרונה על ידי {name}",
+    "edit": "עריכה",
+    "delete": "מחיקה",
+    "close": "סגירה"
+  },
+  "deleteEvent": {
+    "title": "למחוק את האירוע?",
+    "body": "האירוע \"{title}\" יימחק מהיומן של שניכם.",
+    "confirm": "מחיקה",
+    "deleting": "מוחק…",
+    "cancel": "ביטול",
+    "failed": "המחיקה נכשלה. בדקו את החיבור לאינטרנט ונסו שוב."
   },
   "categories": {
     "work": "עבודה",

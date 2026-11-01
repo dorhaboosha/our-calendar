@@ -36,6 +36,8 @@ type TestEvent = {
   /** A user key, or "shared". */
   owner: UserKey | "shared";
   category?: string;
+  location?: string;
+  description?: string;
 } & (
   | { start: string; end: string } // ISO instants: a timed event
   | { startDate: string; endDate: string } // "YYYY-MM-DD", end exclusive: all day
@@ -43,9 +45,10 @@ type TestEvent = {
 
 /**
  * Inserts an event straight into the test database, created by its owner (or by Dor
- * for a shared event). The owner must have signed in already (signInAs).
+ * for a shared event), and returns its id. The owner must have signed in already
+ * (signInAs).
  */
-export async function insertEvent(event: TestEvent) {
+export async function insertEvent(event: TestEvent): Promise<string> {
   const creator = event.owner === "shared" ? "dor" : event.owner;
   const { rows } = await db.query<{ id: string }>('SELECT id FROM "user" WHERE "configKey" = $1', [
     creator,
@@ -53,12 +56,14 @@ export async function insertEvent(event: TestEvent) {
   if (!rows[0]) throw new Error(`insertEvent: "${creator}" must sign in first`);
   const userId = rows[0].id;
   const allDay = "startDate" in event;
+  const id = randomUUID();
   await db.query(
     `INSERT INTO "event" (id, title, "ownerType", "ownerUserId", category, "isAllDay",
-       "startAt", "endAt", "startDate", "endDate", "createdByUserId", "updatedByUserId", "updatedAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, now())`,
+       "startAt", "endAt", "startDate", "endDate", "createdByUserId", "updatedByUserId",
+       location, description, "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, now())`,
     [
-      randomUUID(),
+      id,
       event.title,
       event.owner === "shared" ? "SHARED" : "USER",
       event.owner === "shared" ? null : userId,
@@ -69,8 +74,11 @@ export async function insertEvent(event: TestEvent) {
       allDay ? event.startDate : null,
       allDay ? event.endDate : null,
       userId,
+      event.location ?? null,
+      event.description ?? null,
     ],
   );
+  return id;
 }
 
 /** The value of a Better Auth session cookie: the token, signed with the app secret. */

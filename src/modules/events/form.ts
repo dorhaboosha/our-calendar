@@ -3,7 +3,15 @@
 // checkbox. All values are local (dates "YYYY-MM-DD", times "HH:mm").
 
 import { Temporal } from "temporal-polyfill";
-import { type LocalDate, type LocalTime, isLocalDate, isLocalTime } from "./time";
+import type { CalendarEvent } from "./events";
+import {
+  type LocalDate,
+  type LocalTime,
+  exclusiveEndToLastDay,
+  isLocalDate,
+  isLocalTime,
+  toLocal,
+} from "./time";
 import type { EventInput } from "./validation";
 
 export type EventFormValues = {
@@ -90,6 +98,38 @@ export function newEventValues(options: {
     endTime: end.time,
     location: "",
     description: "",
+  };
+}
+
+/** An existing event, as the form shows it for editing. */
+export function eventFormValues(event: CalendarEvent, timeZone: string): EventFormValues {
+  const common = {
+    title: event.title,
+    category: event.category,
+    owner: event.owner,
+    isAllDay: event.isAllDay,
+    location: event.location ?? "",
+    description: event.description ?? "",
+  };
+  if (event.isAllDay) {
+    // The form shows the last day itself; the times are what unticking "all day" would give.
+    return {
+      ...common,
+      startDate: event.start,
+      endDate: exclusiveEndToLastDay(event.end),
+      startTime: DEFAULT_START_TIME,
+      endTime: addMinutes({ date: event.start, time: DEFAULT_START_TIME }, DEFAULT_DURATION_MINUTES)
+        .time,
+    };
+  }
+  const start = toLocal(new Date(event.start), timeZone);
+  const end = toLocal(new Date(event.end), timeZone);
+  return {
+    ...common,
+    startDate: start.date,
+    startTime: start.time,
+    endDate: end.date,
+    endTime: end.time,
   };
 }
 

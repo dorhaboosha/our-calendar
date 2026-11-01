@@ -12,6 +12,7 @@ import FullCalendar, {
   type DatesSetInfo,
   type DayCellInfo,
   type DayLaneInfo,
+  type EventClickInfo,
   type EventDisplayInfo,
   type EventInput,
   type EventSourceFuncInfo,
@@ -22,9 +23,16 @@ import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
 import { useCallback, useRef, useState } from "react";
 import { appConfig } from "@/config/app.config";
+import { DeleteEventDialog } from "@/components/events/delete-event-dialog";
+import { EventDetailsDialog } from "@/components/events/event-details-dialog";
 import { EventFormDialog } from "@/components/events/event-form-dialog";
 import type { CalendarEvent } from "@/modules/events/events";
-import { type EventFormValues, type NewEventClick, newEventValues } from "@/modules/events/form";
+import {
+  type EventFormValues,
+  type NewEventClick,
+  eventFormValues,
+  newEventValues,
+} from "@/modules/events/form";
 import { isLocalDate, toLocal } from "@/modules/events/time";
 import { textColorFor } from "@/modules/users/colors";
 import { fullCalendarLocale } from "./locales";
@@ -49,6 +57,13 @@ export type CalendarProps = {
 };
 
 const TIME_FORMAT = { hour: "2-digit", minute: "2-digit", hour12: false } as const;
+
+/** The window open over the calendar, if any. */
+type Panel =
+  | { kind: "create"; values: EventFormValues }
+  | { kind: "details"; event: CalendarEvent }
+  | { kind: "edit"; event: CalendarEvent }
+  | { kind: "delete"; event: CalendarEvent };
 
 export function Calendar({
   ownerColors,
@@ -95,13 +110,15 @@ export function Calendar({
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}`);
   }, []);
 
-  // The open "new event" form, with its starting values; null when closed.
-  const [newEvent, setNewEvent] = useState<EventFormValues | null>(null);
+  const [panel, setPanel] = useState<Panel | null>(null);
+  const closePanel = () => setPanel(null);
+  const refetchEvents = () => calendarRef.current?.getApi().refetchEvents();
 
   function openNewEvent(click?: NewEventClick) {
     const now = new Date();
-    setNewEvent(
-      newEventValues({
+    setPanel({
+      kind: "create",
+      values: newEventValues({
         owner: currentUserKey,
         category: appConfig.defaultCategory,
         now,
@@ -109,8 +126,16 @@ export function Calendar({
         today: toLocal(now, appConfig.timeZone).date,
         click,
       }),
-    );
+    });
   }
+
+  // A click (or Enter) on an event opens its details. The event is as last loaded; if
+  // it changed since, saving or deleting is refused and the calendar reloads it.
+  function onEventClick(info: EventClickInfo) {
+    setPanel({ kind: "details", event: info.event.extendedProps.event as CalendarEvent });
+  }
+
+  const colorOf = (event: CalendarEvent) => ownerColors[event.owner] ?? appConfig.sharedColor;
 
   // A click on an empty spot: a day in the month view, a time slot or the "all day" row
   // in the week and day views.
@@ -166,7 +191,7 @@ export function Calendar({
           allDay: event.isAllDay,
           color,
           contrastColor: textColorFor(color),
-          extendedProps: { category: event.category, owner: event.owner },
+          extendedProps: { event },
         };
       });
     },
@@ -176,7 +201,7 @@ export function Calendar({
   // Time, title, and the category as text, so meaning never depends on color alone.
   const renderEvent = useCallback(
     (arg: EventDisplayInfo) => {
-      const category = categoryLabels[arg.event.extendedProps.category as string];
+      const category = categoryLabels[(arg.event.extendedProps.event as CalendarEvent).category];
       return (
         <Box px="1" overflow="hidden" whiteSpace="nowrap" textOverflow="ellipsis" fontSize="xs">
           {arg.timeText && (
@@ -213,11 +238,41 @@ export function Calendar({
           />
         </Field.Root>
       </HStack>
-      {newEvent && (
+      {panel?.kind === "create" && (
         <EventFormDialog
-          initialValues={newEvent}
-          onClose={() => setNewEvent(null)}
-          onSaved={() => calendarRef.current?.getApi().refetchEvents()}
+          initialValues={panel.values}
+          onClose={closePanel}
+          onSaved={refetchEvents}
+          onStale={refetchEvents}
+        />
+      )}
+      {panel?.kind === "details" && (
+        <EventDetailsDialog
+          event={panel.event}
+          color={colorOf(panel.event)}
+          onEdit={() => setPanel({ kind: "edit", event: panel.event })}
+          onDelete={() => setPanel({ kind: "delete", event: panel.event })}
+          onClose={closePanel}
+        />
+      )}
+      {panel?.kind === "edit" && (
+        <EventFormDialog
+          initialValues={eventFormValues(panel.event, appConfig.timeZone)}
+          editing={{ id: panel.event.id, version: panel.event.version }}
+          onClose={closePanel}
+          onSaved={refetchEvents}
+          onStale={refetchEvents}
+        />
+      )}
+      {panel?.kind === "delete" && (
+        <DeleteEventDialog
+          event={panel.event}
+          onCancel={() => setPanel({ kind: "details", event: panel.event })}
+          onDeleted={() => {
+            closePanel();
+            refetchEvents();
+          }}
+          onStale={refetchEvents}
         />
       )}
       {loadFailed && (
@@ -229,6 +284,7 @@ export function Calendar({
         ref={calendarRef}
         plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, classicThemePlugin]}
         dateClick={onDateClick}
+        eventClick={onEventClick}
         locale={fullCalendarLocale(appConfig.locale)}
         direction={appConfig.direction}
         timeZone={appConfig.timeZone}

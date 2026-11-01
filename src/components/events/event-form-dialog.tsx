@@ -16,7 +16,7 @@ import {
 } from "@chakra-ui/react";
 import { useTranslations } from "next-intl";
 import { type FormEvent, useState } from "react";
-import { createEventAction } from "@/app/(app)/event-actions";
+import { createEventAction, updateEventAction } from "@/app/(app)/event-actions";
 import { appConfig } from "@/config/app.config";
 import { type EventFormValues, toEventInput, withAllDay, withStart } from "@/modules/events/form";
 import {
@@ -26,19 +26,27 @@ import {
   TITLE_MAX,
 } from "@/modules/events/validation";
 import type { EventField } from "@/modules/events/validation";
+import { dialogFromMdUp } from "./dialog-styles";
 
 type Props = {
   initialValues: EventFormValues;
+  /** The event being edited, at the version that was loaded; absent for a new event. */
+  editing?: { id: string; version: number };
   onClose: () => void;
   /** Called after a successful save, before the dialog closes. */
   onSaved: () => void;
+  /**
+   * Called when the save was refused because the event was changed or deleted
+   * meanwhile, so the calendar can reload it. The form stays open with the message.
+   */
+  onStale: () => void;
 };
 
 /**
- * The "new event" form. Rendered only while open, so every opening starts from fresh
- * values. Full screen on phones, a dialog on larger screens.
+ * The form for a new event, or for editing one. Rendered only while open, so every
+ * opening starts from fresh values. Full screen on phones, a dialog on larger screens.
  */
-export function EventFormDialog({ initialValues, onClose, onSaved }: Props) {
+export function EventFormDialog({ initialValues, editing, onClose, onSaved, onStale }: Props) {
   const t = useTranslations();
   const [values, setValues] = useState(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<EventField, string>>>({});
@@ -54,7 +62,10 @@ export function EventFormDialog({ initialValues, onClose, onSaved }: Props) {
     setPending(true);
     setFormError(null);
     try {
-      const result = await createEventAction(toEventInput(values));
+      const input = toEventInput(values);
+      const result = editing
+        ? await updateEventAction(editing.id, editing.version, input)
+        : await createEventAction(input);
       if (result.ok) {
         onSaved();
         onClose();
@@ -65,6 +76,7 @@ export function EventFormDialog({ initialValues, onClose, onSaved }: Props) {
       } else {
         setFieldErrors({});
         setFormError(result.message);
+        onStale();
       }
     } catch {
       setFormError(t("eventForm.saveFailed"));
@@ -93,9 +105,11 @@ export function EventFormDialog({ initialValues, onClose, onSaved }: Props) {
       <Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
-          <Dialog.Content>
+          <Dialog.Content css={dialogFromMdUp}>
             <Dialog.Header>
-              <Dialog.Title>{t("eventForm.createTitle")}</Dialog.Title>
+              <Dialog.Title>
+                {editing ? t("eventForm.editTitle") : t("eventForm.createTitle")}
+              </Dialog.Title>
             </Dialog.Header>
             <Dialog.Body>
               <form id="event-form" onSubmit={submit} noValidate>

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { CalendarEvent } from "./events";
 import {
   type EventFormValues,
   addMinutes,
+  eventFormValues,
   newEventValues,
   nextFullHour,
   toEventInput,
@@ -113,6 +115,63 @@ describe("newEventValues", () => {
       startDate: "2026-11-06",
       endDate: "2026-11-06",
     });
+  });
+});
+
+describe("eventFormValues", () => {
+  const saved: CalendarEvent = {
+    id: "1",
+    title: "Dentist",
+    description: null,
+    location: "Herzl 1",
+    category: "personal",
+    owner: "maayan",
+    isAllDay: false,
+    start: "2026-11-05T08:00:00.000Z",
+    end: "2026-11-05T09:30:00.000Z",
+    timezone: TZ,
+    version: 3,
+    createdBy: "dor",
+    updatedBy: "dor",
+    updatedAt: "2026-11-01T10:00:00.000Z",
+  };
+
+  it("a timed event: its local dates and times, missing texts as empty fields", () => {
+    expect(eventFormValues(saved, TZ)).toEqual({
+      title: "Dentist",
+      category: "personal",
+      owner: "maayan",
+      isAllDay: false,
+      startDate: "2026-11-05",
+      startTime: "10:00",
+      endDate: "2026-11-05",
+      endTime: "11:30",
+      location: "Herzl 1",
+      description: "",
+    });
+  });
+
+  it("an all-day event: the last day itself, not the stored day after", () => {
+    const vacation = { ...saved, isAllDay: true, start: "2026-11-12", end: "2026-11-14" };
+    expect(eventFormValues(vacation, TZ)).toMatchObject({
+      isAllDay: true,
+      startDate: "2026-11-12",
+      endDate: "2026-11-13",
+      startTime: "09:00",
+      endTime: "10:00",
+    });
+  });
+
+  it("saving an event unchanged gives the server the same event", () => {
+    const vacation = { ...saved, isAllDay: true, start: "2026-11-12", end: "2026-11-14" };
+    for (const event of [saved, vacation]) {
+      const result = validateEvent(toEventInput(eventFormValues(event, TZ)));
+      expect(result.ok && result.draft.time).toEqual(
+        event.isAllDay
+          ? { kind: "allDay", startDate: event.start, endDateExclusive: event.end }
+          : { kind: "timed", startAt: new Date(event.start), endAt: new Date(event.end) },
+      );
+    }
   });
 });
 
