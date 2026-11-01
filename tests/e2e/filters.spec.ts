@@ -124,3 +124,37 @@ test("a link with filters opens with them, ignoring unknown keys", async ({ page
   await expect(event(page, "ארוחת ערב")).toBeHidden();
   await expect(categoryChip(page, "אירוע זוגי")).toHaveAttribute("aria-pressed", "false");
 });
+
+const categoriesToggle = (page: Page) => page.getByRole("button", { name: /סינון לפי קטגוריה/ });
+
+test("on a computer the categories are always shown, with no toggle", async ({ page }) => {
+  test.skip(test.info().project.name === "mobile", "computer only");
+  await page.goto("/?view=month");
+  await expect(categoryChip(page, "עבודה")).toBeVisible();
+  await expect(categoriesToggle(page)).toBeHidden();
+  // Let the events finish loading: a request still running when the test ends would
+  // meet the next test's database reset.
+  await expect(event(page, "רופא שיניים")).toBeVisible();
+});
+
+test("on a phone the categories fold behind a button @mobile", async ({ page }) => {
+  test.skip(test.info().project.name !== "mobile", "phone only");
+  await page.goto("/?view=day");
+  // The owners, which are also the color legend, stay in view.
+  await expect(ownerChip(page, "מעיין")).toBeVisible();
+  await expect(page.getByRole("group", { name: "קטגוריות" })).toBeHidden();
+  await expect(categoriesToggle(page)).toHaveAttribute("aria-expanded", "false");
+
+  await categoriesToggle(page).click();
+  await expect(categoriesToggle(page)).toHaveAttribute("aria-expanded", "true");
+  await categoryChip(page, "אישי").click();
+  await expect(event(page, "רופא שיניים")).toBeHidden();
+
+  // Folded again, the button still says something is hidden, and "show all" stays at hand.
+  await categoriesToggle(page).click();
+  await expect(page.getByRole("group", { name: "קטגוריות" })).toBeHidden();
+  await expect(categoriesToggle(page)).toHaveText("סינון לפי קטגוריה (אחת מוסתרת)");
+  await showAll(page).click();
+  await expect(event(page, "רופא שיניים")).toBeVisible();
+  await expect(categoriesToggle(page)).toHaveText("סינון לפי קטגוריה");
+});

@@ -36,6 +36,8 @@
     "filters": {
       "owners": "אירועים של",
       "categories": "קטגוריות",
+      "categoriesToggle": "סינון לפי קטגוריה",
+      "categoriesToggleHidden": "סינון לפי קטגוריה ({count, plural, one {אחת מוסתרת} other {# מוסתרות}})",
       "showAll": "הצגת הכול"
     }
   },

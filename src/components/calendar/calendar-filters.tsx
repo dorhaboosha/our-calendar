@@ -2,7 +2,7 @@
 
 import { Button, HStack, Stack, Text } from "@chakra-ui/react";
 import { useTranslations } from "next-intl";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { textColorFor } from "@/modules/users/colors";
 import { type CalendarFilters, SHOW_ALL, isFiltered, toggle } from "./filters";
 
@@ -21,12 +21,18 @@ type Props = {
  * Toggle chips that show or hide events by owner and by category. A shown chip is
  * filled; a hidden one is outlined and struck through, so the state never depends on
  * color alone (and aria-pressed tells screen readers).
+ *
+ * On phones the category row is folded behind a button, to leave room for the
+ * calendar; the owner row stays, since it is also the color legend.
  */
 export function CalendarFilterChips({ owners, ownerColors, categories, filters, onChange }: Props) {
   const t = useTranslations("home.filters");
   const id = useId();
   const ownerKeys = owners.map((owner) => owner.key);
   const categoryKeys = categories.map((category) => category.key);
+  // Phones only: whether the category row is unfolded. Larger screens always show it.
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const hiddenCategoryCount = filters.hiddenCategories.length;
 
   return (
     <Stack gap="2" mb="3">
@@ -52,8 +58,38 @@ export function CalendarFilterChips({ owners, ownerColors, categories, filters, 
             />
           );
         })}
+        <Button
+          size="xs"
+          variant="outline"
+          hideFrom="md"
+          aria-expanded={categoriesOpen}
+          aria-controls={`${id}-category-row`}
+          onClick={() => setCategoriesOpen((open) => !open)}
+        >
+          {hiddenCategoryCount > 0
+            ? t("categoriesToggleHidden", { count: hiddenCategoryCount })
+            : t("categoriesToggle")}
+        </Button>
+        {/* In the always-visible row, so it is reachable with the categories folded. */}
+        {isFiltered(filters) && (
+          <Button
+            size="xs"
+            variant="plain"
+            textDecoration="underline"
+            onClick={() => onChange(SHOW_ALL)}
+          >
+            {t("showAll")}
+          </Button>
+        )}
       </HStack>
-      <HStack role="group" aria-labelledby={`${id}-categories`} gap="2" wrap="wrap">
+      <HStack
+        id={`${id}-category-row`}
+        role="group"
+        aria-labelledby={`${id}-categories`}
+        gap="2"
+        wrap="wrap"
+        display={{ base: categoriesOpen ? "flex" : "none", md: "flex" }}
+      >
         <Text id={`${id}-categories`} fontSize="sm" color="fg.muted" minW="16">
           {t("categories")}
         </Text>
@@ -70,16 +106,6 @@ export function CalendarFilterChips({ owners, ownerColors, categories, filters, 
             }
           />
         ))}
-        {isFiltered(filters) && (
-          <Button
-            size="xs"
-            variant="plain"
-            textDecoration="underline"
-            onClick={() => onChange(SHOW_ALL)}
-          >
-            {t("showAll")}
-          </Button>
-        )}
       </HStack>
     </Stack>
   );
