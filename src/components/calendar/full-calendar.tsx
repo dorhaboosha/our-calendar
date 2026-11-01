@@ -21,7 +21,8 @@ import dayGridPlugin from "@fullcalendar/react/daygrid";
 import interactionPlugin from "@fullcalendar/react/interaction";
 import classicThemePlugin from "@fullcalendar/react/themes/classic";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
-import { useCallback, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { appConfig } from "@/config/app.config";
 import { DeleteEventDialog } from "@/components/events/delete-event-dialog";
 import { EventDetailsDialog } from "@/components/events/event-details-dialog";
@@ -34,7 +35,10 @@ import {
   newEventValues,
 } from "@/modules/events/form";
 import { isLocalDate, toLocal } from "@/modules/events/time";
+import { SHARED_OWNER } from "@/modules/events/validation";
 import { textColorFor } from "@/modules/users/colors";
+import { CalendarFilterChips } from "./calendar-filters";
+import { type CalendarFilters, isVisible, readFilters, writeFilters } from "./filters";
 import { fullCalendarLocale } from "./locales";
 import {
   CALENDAR_VIEWS,
@@ -57,6 +61,14 @@ export type CalendarProps = {
 };
 
 const TIME_FORMAT = { hour: "2-digit", minute: "2-digit", hour12: false } as const;
+// Timed events in the month view as colored blocks, like all-day events, not dots.
+const EVENT_DISPLAY = "block";
+const OWNER_KEYS = [...appConfig.users.map((user) => user.key), SHARED_OWNER];
+
+/** A filtered-out event stays loaded, with display "none". */
+function displayFor(event: CalendarEvent, filters: CalendarFilters) {
+  return isVisible(event, filters) ? EVENT_DISPLAY : "none";
+}
 
 /** The window open over the calendar, if any. */
 type Panel =
@@ -73,6 +85,7 @@ export function Calendar({
   newEventLabel,
   currentUserKey,
 }: CalendarProps) {
+  const t = useTranslations();
   const calendarRef = useRef<CalendarRef>(null);
   // Where to open: the URL's view and date, or the defaults. This component renders in
   // the browser only, so reading window here is safe.
@@ -109,6 +122,22 @@ export function Calendar({
     });
     window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}`);
   }, []);
+
+  // Which owners and categories are shown; kept in the URL like the view and date.
+  const [filters, setFilters] = useState(() =>
+    readFilters(window.location.search, OWNER_KEYS, Object.keys(categoryLabels)),
+  );
+  // The latest filters, for events loaded later (another month, or after a save).
+  const filtersRef = useRef(filters);
+  useEffect(() => {
+    filtersRef.current = filters;
+    // Hide or show the loaded events at once, without loading them again.
+    for (const event of calendarRef.current?.getApi().getEvents() ?? []) {
+      event.setProp("display", displayFor(event.extendedProps.event as CalendarEvent, filters));
+    }
+    const search = writeFilters(window.location.search, filters);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${search}`);
+  }, [filters]);
 
   const [panel, setPanel] = useState<Panel | null>(null);
   const closePanel = () => setPanel(null);
@@ -189,6 +218,7 @@ export function Calendar({
           start: event.start,
           end: event.end,
           allDay: event.isAllDay,
+          display: displayFor(event, filtersRef.current),
           color,
           contrastColor: textColorFor(color),
           extendedProps: { event },
@@ -222,10 +252,7 @@ export function Calendar({
   );
 
   return (
-    // FullCalendar keeps a hidden measuring element far to the left (left: -9909px). In
-    // a right-to-left page that overflows into a huge horizontal scroll, so the calendar
-    // clips it. "clip", unlike "hidden", keeps the sticky headers working.
-    <Box data-testid="calendar" position="relative" overflowX="clip">
+    <Box>
       <HStack mb="3" gap="3" align="end" wrap="wrap">
         <Button onClick={() => openNewEvent()}>{newEventLabel}</Button>
         <Field.Root maxW="xs">
@@ -238,6 +265,16 @@ export function Calendar({
           />
         </Field.Root>
       </HStack>
+      <CalendarFilterChips
+        owners={[
+          ...appConfig.users.map((user) => ({ key: user.key, label: user.displayName })),
+          { key: SHARED_OWNER, label: t("common.shared") },
+        ]}
+        ownerColors={ownerColors}
+        categories={Object.entries(categoryLabels).map(([key, label]) => ({ key, label }))}
+        filters={filters}
+        onChange={setFilters}
+      />
       {panel?.kind === "create" && (
         <EventFormDialog
           initialValues={panel.values}
@@ -280,37 +317,41 @@ export function Calendar({
           {loadErrorText}
         </Text>
       )}
-      <FullCalendar
-        ref={calendarRef}
-        plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, classicThemePlugin]}
-        dateClick={onDateClick}
-        eventClick={onEventClick}
-        locale={fullCalendarLocale(appConfig.locale)}
-        direction={appConfig.direction}
-        timeZone={appConfig.timeZone}
-        initialView={CALENDAR_VIEWS[initial.view]}
-        initialDate={initial.date ?? undefined}
-        headerToolbar={{
-          start: "prev,next today",
-          center: "title",
-          end: "dayGridMonth,timeGridWeek,timeGridDay",
-        }}
-        events={fetchEvents}
-        eventSourceFailure={() => setLoadFailed(true)}
-        eventContent={renderEvent}
-        dayCellClass={pickedDateClass}
-        dayLaneClass={pickedDateClass}
-        eventTimeFormat={TIME_FORMAT}
-        slotHeaderFormat={TIME_FORMAT}
-        dayMaxEvents
-        // Timed events in the month view as colored blocks, like all-day events, not dots.
-        eventDisplay="block"
-        nowIndicator
-        scrollTime="08:00:00"
-        // Month view grows with its content; day and week views scroll inside a fixed height.
-        height={isTimeGrid ? "75vh" : "auto"}
-        datesSet={onDatesSet}
-      />
+      {/* FullCalendar keeps a hidden measuring element far to the left (left: -9909px).
+          In a right-to-left page that overflows into a huge horizontal scroll, so the
+          calendar clips it. "clip", unlike "hidden", keeps the sticky headers working. */}
+      <Box data-testid="calendar" position="relative" overflowX="clip">
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, classicThemePlugin]}
+          dateClick={onDateClick}
+          eventClick={onEventClick}
+          locale={fullCalendarLocale(appConfig.locale)}
+          direction={appConfig.direction}
+          timeZone={appConfig.timeZone}
+          initialView={CALENDAR_VIEWS[initial.view]}
+          initialDate={initial.date ?? undefined}
+          headerToolbar={{
+            start: "prev,next today",
+            center: "title",
+            end: "dayGridMonth,timeGridWeek,timeGridDay",
+          }}
+          events={fetchEvents}
+          eventSourceFailure={() => setLoadFailed(true)}
+          eventContent={renderEvent}
+          dayCellClass={pickedDateClass}
+          dayLaneClass={pickedDateClass}
+          eventTimeFormat={TIME_FORMAT}
+          slotHeaderFormat={TIME_FORMAT}
+          dayMaxEvents
+          eventDisplay={EVENT_DISPLAY}
+          nowIndicator
+          scrollTime="08:00:00"
+          // Month view grows with its content; day and week views scroll inside a fixed height.
+          height={isTimeGrid ? "75vh" : "auto"}
+          datesSet={onDatesSet}
+        />
+      </Box>
     </Box>
   );
 }

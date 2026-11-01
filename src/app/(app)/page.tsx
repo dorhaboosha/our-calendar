@@ -1,10 +1,9 @@
-import { Box, HStack, Heading, Skeleton, Stack } from "@chakra-ui/react";
+import { Box, Heading, Skeleton, Stack } from "@chakra-ui/react";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { CalendarView } from "@/components/calendar/calendar-view";
 import { appConfig } from "@/config/app.config";
-import { textColorFor } from "@/modules/users/colors";
 import { requireUser } from "@/modules/auth/current-user";
 import { SHARED_OWNER } from "@/modules/events/validation";
 import { getSharedColor, listCalendarUsers } from "@/modules/users/users";
@@ -20,15 +19,10 @@ export default function HomePage() {
         <Heading size="2xl" srOnly>
           {t("home.title")}
         </Heading>
+        {/* The owner filter chips above the calendar double as its color legend. */}
         <Suspense fallback={<Skeleton h="xl" />}>
           <Calendar />
         </Suspense>
-        <Stack gap="2">
-          <Heading size="sm">{t("home.legend")}</Heading>
-          <Suspense fallback={<Skeleton h="7" w="48" />}>
-            <ColorLegend />
-          </Suspense>
-        </Stack>
       </Stack>
     </Box>
   );
@@ -55,32 +49,5 @@ async function Calendar() {
       newEventLabel={t("eventForm.newEvent")}
       currentUserKey={user.configKey}
     />
-  );
-}
-
-async function ColorLegend() {
-  const t = await getTranslations();
-  const [users, sharedColor] = await Promise.all([listCalendarUsers(), getSharedColor()]);
-  const legend = [
-    ...users.map((user) => ({ label: user.displayName, color: user.color })),
-    { label: t("common.shared"), color: sharedColor },
-  ];
-
-  return (
-    <HStack gap="2" wrap="wrap">
-      {legend.map((item) => (
-        <Box
-          key={item.label}
-          bg={item.color}
-          color={textColorFor(item.color)}
-          px="3"
-          py="1"
-          borderRadius="md"
-          fontSize="sm"
-        >
-          {item.label}
-        </Box>
-      ))}
-    </HStack>
   );
 }
