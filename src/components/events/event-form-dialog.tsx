@@ -18,6 +18,7 @@ import { useTranslations } from "next-intl";
 import { type FormEvent, useState } from "react";
 import { createEventAction, updateEventAction } from "@/app/(app)/event-actions";
 import { appConfig } from "@/config/app.config";
+import type { CalendarEvent } from "@/modules/events/events";
 import { type EventFormValues, toEventInput, withAllDay, withStart } from "@/modules/events/form";
 import {
   DESCRIPTION_MAX,
@@ -33,8 +34,8 @@ type Props = {
   /** The event being edited, at the version that was loaded; absent for a new event. */
   editing?: { id: string; version: number };
   onClose: () => void;
-  /** Called after a successful save, before the dialog closes. */
-  onSaved: () => void;
+  /** Called with the saved event after a successful save, before the dialog closes. */
+  onSaved: (event: CalendarEvent) => void;
   /**
    * Called when the save was refused because the event was changed or deleted
    * meanwhile, so the calendar can reload it. The form stays open with the message.
@@ -67,7 +68,7 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
         ? await updateEventAction(editing.id, editing.version, input)
         : await createEventAction(input);
       if (result.ok) {
-        onSaved();
+        onSaved(result.event);
         onClose();
         return;
       }

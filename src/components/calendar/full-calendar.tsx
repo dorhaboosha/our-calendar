@@ -143,6 +143,18 @@ export function Calendar({
   const closePanel = () => setPanel(null);
   const refetchEvents = () => calendarRef.current?.getApi().refetchEvents();
 
+  // After a save: if the filters would hide the event just saved, show its owner and
+  // category again, so it doesn't look as if the save failed.
+  function onEventSaved(event: CalendarEvent) {
+    if (!isVisible(event, filters)) {
+      setFilters({
+        hiddenOwners: filters.hiddenOwners.filter((key) => key !== event.owner),
+        hiddenCategories: filters.hiddenCategories.filter((key) => key !== event.category),
+      });
+    }
+    refetchEvents();
+  }
+
   function openNewEvent(click?: NewEventClick) {
     const now = new Date();
     setPanel({
@@ -279,7 +291,7 @@ export function Calendar({
         <EventFormDialog
           initialValues={panel.values}
           onClose={closePanel}
-          onSaved={refetchEvents}
+          onSaved={onEventSaved}
           onStale={refetchEvents}
         />
       )}
@@ -297,7 +309,7 @@ export function Calendar({
           initialValues={eventFormValues(panel.event, appConfig.timeZone)}
           editing={{ id: panel.event.id, version: panel.event.version }}
           onClose={closePanel}
-          onSaved={refetchEvents}
+          onSaved={onEventSaved}
           onStale={refetchEvents}
         />
       )}

@@ -158,3 +158,21 @@ test("on a phone the categories fold behind a button @mobile", async ({ page }) 
   await expect(event(page, "רופא שיניים")).toBeVisible();
   await expect(categoriesToggle(page)).toHaveText("סינון לפי קטגוריה");
 });
+
+test("saving an event the filters would hide shows its owner and category again", async ({
+  page,
+}) => {
+  await page.goto("/?view=month&hideOwners=maayan&hideCategories=meeting");
+  await page.getByRole("button", { name: "אירוע חדש" }).click();
+  const form = page.getByRole("dialog", { name: "אירוע חדש" });
+  await form.getByLabel("כותרת", { exact: true }).fill("פגישה עם רואה חשבון");
+  await form.getByLabel("שייך ל", { exact: true }).selectOption("maayan");
+  await form.getByLabel("קטגוריה", { exact: true }).selectOption("meeting");
+  await form.getByRole("button", { name: "שמירה" }).click();
+
+  await expect(form).toBeHidden();
+  await expect(event(page, "פגישה עם רואה חשבון")).toBeVisible();
+  await expect(ownerChip(page, "מעיין")).toHaveAttribute("aria-pressed", "true");
+  await expect(categoryChip(page, "פגישה")).toHaveAttribute("aria-pressed", "true");
+  await expect(page).not.toHaveURL(/hide/);
+});

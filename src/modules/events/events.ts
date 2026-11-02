@@ -150,14 +150,18 @@ async function columnsFor(
 export async function createEvent(draft: EventDraft, actorUserId: string): Promise<EventResult> {
   const columns = await columnsFor(draft);
   if (!columns.ok) return columns;
-  const row = await prisma.event.create({
+  const { id } = await prisma.event.create({
     data: {
       ...(columns.data as Prisma.EventUncheckedCreateInput),
       createdByUserId: actorUserId,
       updatedByUserId: actorUserId,
     },
-    include: eventInclude,
+    select: { id: true },
   });
+  // Read back separately, like updateEvent: an `include` on create makes Prisma load the
+  // three related users in parallel on the transaction's single connection, which pg
+  // deprecates ("client is already executing a query"; an error from pg 9).
+  const row = await prisma.event.findUniqueOrThrow({ where: { id }, include: eventInclude });
   return { ok: true, event: toCalendarEvent(row) };
 }
 

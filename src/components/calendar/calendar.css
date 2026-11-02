@@ -4,6 +4,9 @@
   --fc-classic-button: #334155;
   --fc-classic-button-border: #334155;
   --fc-classic-today: #facc1526;
+  /* Days outside the month: gray-500 (4.8:1 on white) instead of gray-400 (2.5:1), still
+     lighter than the month's own days. */
+  --fc-classic-faint-foreground: #6b7280;
 }
 
 [data-testid="calendar"] {
