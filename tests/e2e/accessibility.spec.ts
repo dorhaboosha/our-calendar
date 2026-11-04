@@ -8,6 +8,15 @@ import { expect, insertEvent, test } from "./fixtures";
 const NOW = new Date("2026-11-05T09:00:00+02:00");
 
 async function violations(page: Page) {
+  // Let dialogs finish fading in and out first: half-transparent text fails contrast.
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined)),
+    ),
+  );
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
@@ -15,7 +24,11 @@ async function violations(page: Page) {
     rule: violation.id,
     impact: violation.impact,
     help: violation.help,
-    targets: violation.nodes.slice(0, 5).map((node) => node.target.join(" ")),
+    nodes: violation.nodes.slice(0, 5).map((node) => ({
+      target: node.target.join(" "),
+      html: node.html,
+      failure: node.failureSummary,
+    })),
   }));
 }
 
