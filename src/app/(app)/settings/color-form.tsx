@@ -23,6 +23,13 @@ export function ColorForm({ previewName, currentColor, palette, others, save: sa
   // Unique per form: the settings page has more than one.
   const id = useId();
   const [color, setColor] = useState(currentColor);
+  // The saved color can change under the form (the other user changed the shared
+  // color, then this page was refreshed). Follow it, unless a new color was picked here.
+  const [savedColor, setSavedColor] = useState(currentColor);
+  if (currentColor !== savedColor) {
+    setSavedColor(currentColor);
+    if (color === savedColor) setColor(currentColor);
+  }
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [pending, startTransition] = useTransition();
 

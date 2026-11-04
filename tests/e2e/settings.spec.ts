@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import {
+  db,
   expect,
   headerDotColor,
   insertEvent,
@@ -140,6 +141,37 @@ test("either user can change the shared-events color", async ({ page, signInAs }
         return null;
       });
   await expect.poll(eventColor).toBe(OLIVE.rgb);
+});
+
+test("the form follows a color the other user saved, but keeps a pick not yet saved", async ({
+  page,
+  signInAs,
+}) => {
+  await signInAs("dor");
+  // As if Maayan saved it from her own phone.
+  const otherUserSaves = (hex: string) =>
+    db.query(
+      `INSERT INTO "shared_settings" ("id", "sharedColor", "updatedAt") VALUES (1, $1, now())
+       ON CONFLICT ("id") DO UPDATE SET "sharedColor" = $1`,
+      [hex],
+    );
+  const visitCalendarAndBack = async () => {
+    await page.getByRole("banner").getByRole("link", { name: "יומן" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await page.getByRole("banner").getByRole("link", { name: "הגדרות" }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+  };
+  await page.goto("/settings");
+  await expect(sharedColor(page).getByRole("radio", { name: "#047857" })).toBeChecked();
+
+  await otherUserSaves(OLIVE.hex);
+  await visitCalendarAndBack();
+  await expect(sharedColor(page).getByRole("radio", { name: OLIVE.hex })).toBeChecked();
+
+  await chooseColor(sharedColor(page), PURPLE.hex, "swatch");
+  await otherUserSaves("#047857");
+  await visitCalendarAndBack();
+  await expect(sharedColor(page).getByRole("radio", { name: PURPLE.hex })).toBeChecked();
 });
 
 test("the shared color and the personal colors keep apart, both ways", async ({
