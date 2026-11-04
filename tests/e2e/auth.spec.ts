@@ -99,7 +99,11 @@ test.describe("signed in", () => {
 
   test("sign out ends the session", async ({ page, signInAs }) => {
     await signInAs("dor");
+    // Wait for the calendar's first request, like a user who looks before signing out;
+    // signing out mid-request would (correctly) answer it with 401.
+    const eventsLoaded = page.waitForResponse((response) => response.url().includes("/api/events"));
     await page.goto("/");
+    await eventsLoaded;
     // Retried: a click before React has hydrated the button does nothing.
     await expect(async () => {
       await page.getByRole("button", { name: "התנתקות" }).click({ timeout: 1000 });
@@ -108,5 +112,40 @@ test.describe("signed in", () => {
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/login$/);
+  });
+
+  test("a failed sign out stays signed in, and can be tried again", async ({
+    page,
+    pageErrors,
+    signInAs,
+  }) => {
+    await signInAs("dor");
+    await page.route("**/api/auth/sign-out", (route) => route.fulfill({ status: 500 }));
+    const eventsLoaded = page.waitForResponse((response) => response.url().includes("/api/events"));
+    await page.goto("/");
+    await eventsLoaded;
+    // Going to /login with the session still valid would only bounce back here, so the
+    // end state alone can't tell; the page must not try to leave at all.
+    let leftForLogin = false;
+    page.on("request", (request) => {
+      if (request.isNavigationRequest() && request.url().includes("/login")) leftForLogin = true;
+    });
+    const signOut = page.getByRole("button", { name: "התנתקות" });
+    // Retried, as above: a click before React has hydrated the button does nothing.
+    await expect(async () => {
+      const request = page.waitForRequest("**/api/auth/sign-out", { timeout: 1000 });
+      await signOut.click({ timeout: 1000 });
+      await request;
+    }).toPass();
+
+    await expect(signOut).toBeEnabled();
+    expect(leftForLogin).toBe(false);
+    await expect(page.getByRole("banner")).toContainText("שלום, דור");
+    // The browser logs the simulated 500; that error is the point of this test.
+    pageErrors.splice(
+      0,
+      pageErrors.length,
+      ...pageErrors.filter((error) => !error.includes("500")),
+    );
   });
 });

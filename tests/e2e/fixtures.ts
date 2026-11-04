@@ -16,15 +16,76 @@ export const db = new pg.Pool({
   allowExitOnIdle: true,
 });
 
-/** Removes all users (sessions and accounts cascade) so every test starts clean. */
+/**
+ * Removes all events, users (sessions and accounts cascade) and shared settings so
+ * every test starts clean. Events go first: a user who still has events can't be deleted.
+ */
 export async function resetDatabase() {
+  await db.query('DELETE FROM "event"');
   await db.query('DELETE FROM "user"');
+  await db.query('DELETE FROM "shared_settings"');
 }
 
 /** The color saved for a user, or null for the default. */
 export async function savedColor(key: UserKey): Promise<string | null> {
   const { rows } = await db.query('SELECT color FROM "user" WHERE "configKey" = $1', [key]);
   return rows[0]?.color ?? null;
+}
+
+/** The shared-events color picked in settings, or null for the default. */
+export async function savedSharedColor(): Promise<string | null> {
+  const { rows } = await db.query('SELECT "sharedColor" FROM "shared_settings"');
+  return rows[0]?.sharedColor ?? null;
+}
+
+type TestEvent = {
+  title: string;
+  /** A user key, or "shared". */
+  owner: UserKey | "shared";
+  category?: string;
+  location?: string;
+  description?: string;
+} & (
+  | { start: string; end: string } // ISO instants: a timed event
+  | { startDate: string; endDate: string } // "YYYY-MM-DD", end exclusive: all day
+);
+
+/**
+ * Inserts an event straight into the test database, created by its owner (or by Dor
+ * for a shared event), and returns its id. The owner must have signed in already
+ * (signInAs).
+ */
+export async function insertEvent(event: TestEvent): Promise<string> {
+  const creator = event.owner === "shared" ? "dor" : event.owner;
+  const { rows } = await db.query<{ id: string }>('SELECT id FROM "user" WHERE "configKey" = $1', [
+    creator,
+  ]);
+  if (!rows[0]) throw new Error(`insertEvent: "${creator}" must sign in first`);
+  const userId = rows[0].id;
+  const allDay = "startDate" in event;
+  const id = randomUUID();
+  await db.query(
+    `INSERT INTO "event" (id, title, "ownerType", "ownerUserId", category, "isAllDay",
+       "startAt", "endAt", "startDate", "endDate", "createdByUserId", "updatedByUserId",
+       location, description, "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, now())`,
+    [
+      id,
+      event.title,
+      event.owner === "shared" ? "SHARED" : "USER",
+      event.owner === "shared" ? null : userId,
+      event.category ?? "other",
+      allDay,
+      allDay ? null : event.start,
+      allDay ? null : event.end,
+      allDay ? event.startDate : null,
+      allDay ? event.endDate : null,
+      userId,
+      event.location ?? null,
+      event.description ?? null,
+    ],
+  );
+  return id;
 }
 
 /** The value of a Better Auth session cookie: the token, signed with the app secret. */

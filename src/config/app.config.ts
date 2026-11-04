@@ -21,6 +21,7 @@ export type AppConfig = {
   direction: "rtl" | "ltr";
   timeZone: string;
   users: readonly UserConfig[];
+  /** Default color of shared events; either user can change it in settings. */
   sharedColor: string;
   categories: readonly CategoryConfig[];
   defaultCategory: string;
@@ -57,6 +58,7 @@ export const appConfig = {
     "#c2410c",
     "#a16207",
     "#4d7c0f",
+    "#047857",
     "#334155",
   ],
 } as const satisfies AppConfig;

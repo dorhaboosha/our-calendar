@@ -1,5 +1,5 @@
-// Rules for the color each user picks for their events: it must stand out from the
-// white page and be clearly different from the other calendar colors.
+// Rules for the calendar colors (each user's, and the shared events' one): a color must
+// stand out from the white page and be clearly different from the other calendar colors.
 
 /** WCAG 1.4.11 minimum contrast for non-text elements, against the white page. */
 export const MIN_BACKGROUND_CONTRAST = 3;
@@ -69,9 +69,9 @@ export type ColorCheck =
 
 /**
  * @param others colors already in use, keyed by a label for the error message
- *   (the other user's name, or the label for shared events).
+ *   (a user's name, or the label for shared events).
  */
-export function checkUserColor(color: string, others: Record<string, string>): ColorCheck {
+export function checkCalendarColor(color: string, others: Record<string, string>): ColorCheck {
   if (!isHexColor(color)) return { ok: false, reason: "invalid" };
   const normalized = color.toLowerCase();
   if (contrastRatio(normalized, PAGE_BACKGROUND) < MIN_BACKGROUND_CONTRAST) {

@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { appConfig } from "@/config/app.config";
 import { prisma } from "@/lib/prisma";
-import { listCalendarUsers, otherCalendarColors, updateUserColor } from "@/modules/users/users";
+import {
+  getSharedColor,
+  listCalendarUsers,
+  otherCalendarColors,
+  updateSharedColor,
+  updateUserColor,
+  userCalendarColors,
+} from "@/modules/users/users";
 
 const [dorConfig, maayanConfig] = appConfig.users;
 const SHARED = "משותף";
@@ -25,10 +32,12 @@ async function colorOf(id: string) {
 
 beforeEach(async () => {
   await prisma.user.deleteMany();
+  await prisma.sharedSettings.deleteMany();
 });
 
 afterAll(async () => {
   await prisma.user.deleteMany();
+  await prisma.sharedSettings.deleteMany();
   await prisma.$disconnect();
 });
 
@@ -92,10 +101,60 @@ describe("updateUserColor", () => {
     });
   });
 
+  it("refuses a color close to a shared color picked in settings", async () => {
+    const dor = await createUser("dor");
+    await updateSharedColor("#7e22ce");
+    expect(await updateUserColor(dor.id, "dor", "#7f23cf", SHARED)).toEqual({
+      ok: false,
+      reason: "tooSimilar",
+      conflictWith: SHARED,
+    });
+  });
+
   it("only changes the given user", async () => {
     const dor = await createUser("dor");
     const maayan = await createUser("maayan", "#7e22ce");
     await updateUserColor(dor.id, "dor", "#4338ca", SHARED);
     expect(await colorOf(maayan.id)).toBe("#7e22ce");
+  });
+});
+
+describe("shared color", () => {
+  it("is the config default until someone picks one", async () => {
+    expect(await getSharedColor()).toBe(appConfig.sharedColor);
+    expect(await updateSharedColor("#4D7C0F")).toEqual({ ok: true, color: "#4d7c0f" });
+    expect(await getSharedColor()).toBe("#4d7c0f");
+    // Changing it again updates the same single row.
+    await updateSharedColor("#0e7490");
+    expect(await getSharedColor()).toBe("#0e7490");
+    expect(await prisma.sharedSettings.count()).toBe(1);
+  });
+
+  it("is checked against both users' colors, including defaults", async () => {
+    await createUser("maayan", "#7e22ce");
+    expect(await userCalendarColors()).toEqual({
+      [dorConfig.displayName]: dorConfig.defaultColor,
+      [maayanConfig.displayName]: "#7e22ce",
+    });
+    expect(await updateSharedColor("#7f23cf")).toEqual({
+      ok: false,
+      reason: "tooSimilar",
+      conflictWith: maayanConfig.displayName,
+    });
+    expect(await updateSharedColor(dorConfig.defaultColor)).toMatchObject({
+      ok: false,
+      conflictWith: dorConfig.displayName,
+    });
+    expect(await getSharedColor()).toBe(appConfig.sharedColor);
+  });
+
+  it("must stand out from the white page", async () => {
+    expect(await updateSharedColor("#fef9c3")).toEqual({ ok: false, reason: "tooLight" });
+  });
+
+  it("a database constraint keeps settings to a single row", async () => {
+    await expect(prisma.sharedSettings.create({ data: { id: 2 } })).rejects.toThrow(
+      /shared_settings_single_row_check/,
+    );
   });
 });

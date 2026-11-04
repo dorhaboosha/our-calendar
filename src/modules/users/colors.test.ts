@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { appConfig } from "@/config/app.config";
 import {
   MIN_BACKGROUND_CONTRAST,
-  checkUserColor,
+  checkCalendarColor,
   colorDistance,
   contrastRatio,
   isHexColor,
@@ -45,29 +45,29 @@ describe("colorDistance", () => {
   });
 });
 
-describe("checkUserColor", () => {
+describe("checkCalendarColor", () => {
   const others = { מעיין: "#be185d", משותף: "#047857" };
 
   it("accepts a distinct, visible color and lower-cases it", () => {
-    expect(checkUserColor("#1D4ED8", others)).toEqual({ ok: true, color: "#1d4ed8" });
+    expect(checkCalendarColor("#1D4ED8", others)).toEqual({ ok: true, color: "#1d4ed8" });
   });
 
   it("rejects invalid values", () => {
-    expect(checkUserColor("red", others)).toEqual({ ok: false, reason: "invalid" });
+    expect(checkCalendarColor("red", others)).toEqual({ ok: false, reason: "invalid" });
   });
 
   it("rejects colors too light to see on the white page", () => {
-    expect(checkUserColor("#ffffff", others)).toEqual({ ok: false, reason: "tooLight" });
-    expect(checkUserColor("#fde047", others)).toEqual({ ok: false, reason: "tooLight" });
+    expect(checkCalendarColor("#ffffff", others)).toEqual({ ok: false, reason: "tooLight" });
+    expect(checkCalendarColor("#fde047", others)).toEqual({ ok: false, reason: "tooLight" });
   });
 
   it("rejects a color too close to another calendar color, naming it", () => {
-    expect(checkUserColor("#bf195e", others)).toEqual({
+    expect(checkCalendarColor("#bf195e", others)).toEqual({
       ok: false,
       reason: "tooSimilar",
       conflictWith: "מעיין",
     });
-    expect(checkUserColor("#047857", others)).toEqual({
+    expect(checkCalendarColor("#047857", others)).toEqual({
       ok: false,
       reason: "tooSimilar",
       conflictWith: "משותף",
@@ -85,13 +85,13 @@ describe("app.config.ts colors", () => {
   it("each default user color passes the rules against the other defaults", () => {
     const [dor, maayan] = appConfig.users;
     expect(
-      checkUserColor(dor.defaultColor, {
+      checkCalendarColor(dor.defaultColor, {
         other: maayan.defaultColor,
         shared: appConfig.sharedColor,
       }).ok,
     ).toBe(true);
     expect(
-      checkUserColor(maayan.defaultColor, {
+      checkCalendarColor(maayan.defaultColor, {
         other: dor.defaultColor,
         shared: appConfig.sharedColor,
       }).ok,

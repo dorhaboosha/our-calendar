@@ -31,6 +31,11 @@ describe("appConfig", () => {
     expect(new Set(colors).size).toBe(colors.length);
   });
 
+  it("offers every default color in the palette, so each color form can show it chosen", () => {
+    const defaults = [appConfig.sharedColor, ...appConfig.users.map((user) => user.defaultColor)];
+    for (const color of defaults) expect(appConfig.colorPalette).toContain(color);
+  });
+
   it("has unique category keys, a Hebrew label for each, and a valid default", () => {
     const keys = appConfig.categories.map((category) => category.key);
     expect(new Set(keys).size).toBe(keys.length);

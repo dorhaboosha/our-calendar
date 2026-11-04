@@ -20,6 +20,15 @@ const system = createSystem(
           body: { value: "var(--font-heebo), system-ui, sans-serif" },
         },
       },
+      semanticTokens: {
+        colors: {
+          // Chakra's defaults (red.500, green.600) are below WCAG's 4.5:1 for text on white.
+          fg: {
+            error: { value: { _light: "{colors.red.700}", _dark: "{colors.red.400}" } },
+            success: { value: { _light: "{colors.green.700}", _dark: "{colors.green.400}" } },
+          },
+        },
+      },
     },
   }),
 );

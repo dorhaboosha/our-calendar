@@ -1,0 +1,33 @@
+/* FullCalendar's classic theme, adjusted to the app: same font, and the app's colors
+   for "today" and buttons. */
+:root {
+  --fc-classic-button: #334155;
+  --fc-classic-button-border: #334155;
+  --fc-classic-today: #facc1526;
+  /* Days outside the month: gray-500 (4.8:1 on white) instead of gray-400 (2.5:1), still
+     lighter than the month's own days. */
+  --fc-classic-faint-foreground: #6b7280;
+}
+
+[data-testid="calendar"] {
+  font-family: var(--font-heebo), system-ui, sans-serif;
+}
+
+/* The date chosen in the date picker: outlined inside the cell, so it doesn't shift the
+   grid and still shows on top of today's highlight. */
+[data-testid="calendar"] .picked-date {
+  outline: 2px solid var(--fc-classic-button);
+  outline-offset: -2px;
+}
+
+/* Phones: a smaller toolbar title, and toolbar sections wrap instead of overflowing. */
+@media (max-width: 640px) {
+  [data-testid="calendar"] h2 {
+    font-size: 1.1rem;
+  }
+  [data-testid="calendar"] [role="toolbar"],
+  [data-testid="calendar"] .fc-classic-toolbar {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
