@@ -157,7 +157,8 @@ test("the form follows a color the other user saved, but keeps a pick not yet sa
     );
   const visitCalendarAndBack = async () => {
     await page.getByRole("banner").getByRole("link", { name: "יומן" }).click();
-    await expect(page).toHaveURL(/\/$/);
+    // The path only: once loaded, the calendar adds its view to the query string.
+    await expect(page).toHaveURL((url) => url.pathname === "/");
     await page.getByRole("banner").getByRole("link", { name: "הגדרות" }).click();
     await expect(page).toHaveURL(/\/settings$/);
   };

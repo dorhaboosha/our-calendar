@@ -93,7 +93,8 @@ test.describe("signed in", () => {
   test("the login page sends a signed-in user home", async ({ page, signInAs }) => {
     await signInAs("maayan");
     await page.goto("/login");
-    await expect(page).toHaveURL(/\/$/);
+    // The path only: once loaded, the calendar adds its view to the query string.
+    await expect(page).toHaveURL((url) => url.pathname === "/");
     await expect(page.getByRole("banner")).toContainText("שלום, מעיין");
   });
 
