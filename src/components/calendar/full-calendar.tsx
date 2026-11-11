@@ -273,7 +273,15 @@ export function Calendar({
             type="date"
             size="sm"
             value={currentDate}
-            onChange={(event) => goToDate(event.target.value)}
+            onChange={(event) => {
+              goToDate(event.target.value);
+              // An iPhone keeps its date picker open after a pick, until the field loses
+              // focus. Touch screens only: on a computer a date may be typed digit by
+              // digit, and each digit of the year already makes a valid date.
+              if (isLocalDate(event.target.value) && matchMedia("(pointer: coarse)").matches) {
+                event.target.blur();
+              }
+            }}
           />
         </Field.Root>
       </HStack>

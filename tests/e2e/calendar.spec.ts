@@ -231,6 +231,22 @@ test.describe("navigation", () => {
     await expect(picker).toHaveValue("2026-11-05");
   });
 
+  test("on a phone the date picker closes once a date is picked @mobile", async ({ page }) => {
+    const picker = page.getByLabel("מעבר לתאריך");
+    await page.goto("/?view=day");
+    await expect(event(page, "רופא שיניים")).toBeVisible();
+    await picker.focus();
+    await picker.fill("2026-11-12");
+    await expect(title(page)).toHaveText("12 בנובמבר 2026");
+    if (test.info().project.name === "mobile") {
+      // Leaving the field is what closes the iPhone's picker.
+      await expect(picker).not.toBeFocused();
+    } else {
+      // On a computer the field keeps focus, so a date can be typed digit by digit.
+      await expect(picker).toBeFocused();
+    }
+  });
+
   test("the picked date is outlined in the month and week views", async ({ page }) => {
     await page.goto("/?view=month");
     const calendar = page.getByTestId("calendar");
