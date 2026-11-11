@@ -52,6 +52,50 @@ test("month view shows the events of the month in Hebrew, right to left", async 
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/month.png`, fullPage: true });
 });
 
+test("no English is left in the calendar, even in texts only screen readers hear", async ({
+  page,
+}) => {
+  // Enough events on one day for month view to fold some behind "+N נוספים".
+  for (let hour = 12; hour < 17; hour++) {
+    await insertEvent({
+      title: `פגישה ${hour}`,
+      owner: "dor",
+      start: `2026-11-05T${hour}:00:00+02:00`,
+      end: `2026-11-05T${hour}:30:00+02:00`,
+    });
+  }
+  // Visible text, hidden text and accessible labels with Latin letters in them.
+  const englishIn = (root: import("@playwright/test").Locator) =>
+    root.evaluate((element) => {
+      const found: string[] = [];
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (/[A-Za-z]{2,}/.test(node.textContent!)) found.push(node.textContent!.trim());
+      }
+      for (const labelled of element.querySelectorAll("[aria-label], [title]")) {
+        for (const name of ["aria-label", "title"]) {
+          const value = labelled.getAttribute(name);
+          if (value && /[A-Za-z]{2,}/.test(value)) found.push(value);
+        }
+      }
+      return found;
+    });
+
+  for (const view of ["month", "week", "day"]) {
+    await page.goto(`/?view=${view}`);
+    await expect(event(page, "רופא שיניים")).toBeVisible();
+    expect(await englishIn(page.getByTestId("calendar")), view).toEqual([]);
+  }
+  // The "+N נוספים" popover opens outside the calendar's box; its close button was
+  // labelled "Close".
+  await page.goto("/?view=month");
+  await page
+    .getByTestId("calendar")
+    .getByRole("button", { name: /נוספים/ })
+    .click();
+  await expect(page.getByRole("button", { name: "סגירה" })).toBeVisible();
+});
+
 test("events are colored by owner", async ({ page }) => {
   await page.goto("/");
   const colorOf = async (title: string) =>
