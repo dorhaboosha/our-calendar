@@ -231,13 +231,18 @@ test.describe("navigation", () => {
     await expect(picker).toHaveValue("2026-11-05");
   });
 
-  test("on a phone the date picker closes once a date is picked @mobile", async ({ page }) => {
+  test("on a phone the date picker closes once a day is picked @mobile", async ({ page }) => {
     const picker = page.getByLabel("מעבר לתאריך");
     await page.goto("/?view=day");
     await expect(event(page, "רופא שיניים")).toBeVisible();
     await picker.focus();
-    await picker.fill("2026-11-12");
-    await expect(title(page)).toHaveText("12 בנובמבר 2026");
+    // Moving to another month keeps the day number: the picker stays open meanwhile.
+    await picker.fill("2027-03-05");
+    await expect(title(page)).toHaveText("5 במרץ 2027");
+    await expect(picker).toBeFocused();
+    // Tapping a day changes it.
+    await picker.fill("2027-03-26");
+    await expect(title(page)).toHaveText("26 במרץ 2027");
     if (test.info().project.name === "mobile") {
       // Leaving the field is what closes the iPhone's picker.
       await expect(picker).not.toBeFocused();

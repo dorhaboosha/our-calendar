@@ -274,13 +274,15 @@ export function Calendar({
             size="sm"
             value={currentDate}
             onChange={(event) => {
-              goToDate(event.target.value);
+              const value = event.target.value;
               // An iPhone keeps its date picker open after a pick, until the field loses
-              // focus. Touch screens only: on a computer a date may be typed digit by
-              // digit, and each digit of the year already makes a valid date.
-              if (isLocalDate(event.target.value) && matchMedia("(pointer: coarse)").matches) {
-                event.target.blur();
-              }
+              // focus. Let go of it once a day is tapped: the day of the month changes.
+              // Not while moving between months or years, which keeps the day number.
+              // Touch screens only: on a computer a date may be typed digit by digit,
+              // and each digit of the year already makes a valid date.
+              const dayPicked = isLocalDate(value) && value.slice(8) !== currentDate.slice(8);
+              goToDate(value);
+              if (dayPicked && matchMedia("(pointer: coarse)").matches) event.target.blur();
             }}
           />
         </Field.Root>
