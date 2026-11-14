@@ -11,22 +11,23 @@ datasource db {
 // User, Session, Account and Verification are the core tables Better Auth expects.
 
 model User {
-  id            String    @id
-  name          String
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                String           @id
+  name              String
+  email             String           @unique
+  emailVerified     Boolean          @default(false)
+  image             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
   /// Which user from app.config.ts this is ("dor" / "maayan").
-  configKey     String    @unique
+  configKey         String           @unique
   /// Color the user picked in settings; null means the config default.
-  color         String?
-  sessions      Session[]
-  accounts      Account[]
-  ownedEvents   Event[]   @relation("EventOwner")
-  createdEvents Event[]   @relation("EventCreatedBy")
-  updatedEvents Event[]   @relation("EventUpdatedBy")
+  color             String?
+  sessions          Session[]
+  accounts          Account[]
+  ownedEvents       Event[]          @relation("EventOwner")
+  createdEvents     Event[]          @relation("EventCreatedBy")
+  updatedEvents     Event[]          @relation("EventUpdatedBy")
+  updatedExceptions EventException[]
 
   @@map("user")
 }
@@ -92,41 +93,89 @@ enum EventOwnerType {
 /// startDate/endDate. Exactly one pair is set, enforced by CHECK constraints in the
 /// migration (Prisma can't express them).
 model Event {
-  id              String         @id @default(uuid())
-  title           String
-  description     String?
-  location        String?
-  ownerType       EventOwnerType
-  ownerUserId     String?
-  owner           User?          @relation("EventOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  id               String           @id @default(uuid())
+  title            String
+  description      String?
+  location         String?
+  ownerType        EventOwnerType
+  ownerUserId      String?
+  owner            User?            @relation("EventOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
   /// Category key from app.config.ts. Not a database enum, so categories can change
   /// without a migration; the app validates the key.
-  category        String
-  isAllDay        Boolean
+  category         String
+  isAllDay         Boolean
   /// Timed events: the exact start and end instants.
-  startAt         DateTime?      @db.Timestamptz(3)
-  endAt           DateTime?      @db.Timestamptz(3)
+  startAt          DateTime?        @db.Timestamptz(3)
+  endAt            DateTime?        @db.Timestamptz(3)
   /// All-day events: dates with no time. endDate is EXCLUSIVE (the day after the last
   /// day), like Google Calendar; the form shows the last day itself.
-  startDate       DateTime?      @db.Date
-  endDate         DateTime?      @db.Date
+  startDate        DateTime?        @db.Date
+  endDate          DateTime?        @db.Date
   /// IANA time zone the event's local times belong to.
-  timezone        String         @default("Asia/Jerusalem")
-  createdByUserId String
-  createdBy       User           @relation("EventCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  updatedByUserId String
-  updatedBy       User           @relation("EventUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  timezone         String           @default("Asia/Jerusalem")
+  createdByUserId  String
+  createdBy        User             @relation("EventCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  updatedByUserId  String
+  updatedBy        User             @relation("EventUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
   /// Soft delete: kept so the Google export (Phase 4) can delete the exported copy.
-  deletedAt       DateTime?
-  /// Goes up by one on every change; the export uses it to skip unchanged events.
-  version         Int            @default(1)
+  deletedAt        DateTime?
+  /// Goes up by one on every change, including a change to one of its occurrences; the
+  /// export uses it to skip unchanged events.
+  version          Int              @default(1)
+  /// A repeating event (a series): its RRULE value without "RRULE:" and without
+  /// DTSTART (RFC 5545). The series starts at the event's start, in its time zone; see
+  /// src/modules/events/recurrence.ts. Null for a one-off event.
+  rrule            String?
+  /// "This and following" splits a series: the original stops before the chosen
+  /// occurrence and a new series starts from it. The new one points to the original.
+  splitFromEventId String?
+  splitFrom        Event?           @relation("EventSplit", fields: [splitFromEventId], references: [id], onDelete: SetNull)
+  splitInto        Event[]          @relation("EventSplit")
+  exceptions       EventException[]
 
   @@index([startAt, endAt])
   @@index([startDate, endDate])
   @@index([ownerUserId])
   @@map("event")
+}
+
+/// One occurrence of a series that was changed or cancelled ("this occurrence only").
+/// The occurrence is identified by its original start, as the series computes it:
+/// originalStartAt for a timed series, originalStartDate for an all-day one (exactly one
+/// is set). One exception per occurrence at most, so it can't be listed twice.
+///
+/// Override columns that are null keep the series' value, so a later change to the
+/// series' details still reaches this occurrence. Description and location store ""
+/// when this occurrence cleared them. The times are overridden all together, in the same
+/// shape as Event's (enforced by CHECK constraints in the migration).
+model EventException {
+  id                String    @id @default(uuid())
+  eventId           String
+  event             Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  originalStartAt   DateTime? @db.Timestamptz(3)
+  originalStartDate DateTime? @db.Date
+  /// The occurrence was deleted; it has no overrides.
+  isCancelled       Boolean   @default(false)
+  title             String?
+  description       String?
+  location          String?
+  category          String?
+  /// Null unless the occurrence was moved; then exactly one pair is set, as on Event.
+  isAllDay          Boolean?
+  startAt           DateTime? @db.Timestamptz(3)
+  endAt             DateTime? @db.Timestamptz(3)
+  startDate         DateTime? @db.Date
+  endDate           DateTime? @db.Date
+  updatedByUserId   String
+  updatedBy         User      @relation(fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([eventId, originalStartAt])
+  @@unique([eventId, originalStartDate])
+  @@map("event_exception")
 }
 
 // ---- Settings shared by both users ----

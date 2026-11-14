@@ -3,8 +3,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 
-// Database-level rules for events: the CHECK constraints added in the add_events
-// migration, so even a bug in the app can't store an inconsistent event.
+// Database-level rules for events and their exceptions: the CHECK constraints added in
+// the add_events and add_recurrence migrations, so even a bug in the app can't store an
+// inconsistent event.
 
 let dorId: string;
 
@@ -125,5 +126,155 @@ describe("event table", () => {
   it("does not let a user with events be deleted", async () => {
     await prisma.event.create({ data: timed() });
     await expect(prisma.user.delete({ where: { id: dorId } })).rejects.toThrow();
+  });
+});
+
+describe("repeating events", () => {
+  const series = () => timed({ rrule: "FREQ=DAILY" });
+
+  it("stores a series' rule, and a split series points to the one it came from", async () => {
+    const original = await prisma.event.create({ data: series() });
+    const split = await prisma.event.create({
+      data: timed({ rrule: "FREQ=DAILY", splitFromEventId: original.id }),
+    });
+    expect(original.rrule).toBe("FREQ=DAILY");
+    expect(split.splitFromEventId).toBe(original.id);
+  });
+
+  it("rejects a blank rule", () =>
+    expectRejected(timed({ rrule: " " }), "event_rrule_not_blank_check"));
+
+  it("rejects a series split from itself", async () => {
+    const event = await prisma.event.create({ data: series() });
+    await expect(
+      prisma.event.update({ where: { id: event.id }, data: { splitFromEventId: event.id } }),
+    ).rejects.toThrow("event_not_split_from_itself_check");
+  });
+});
+
+describe("event_exception table", () => {
+  let eventId: string;
+
+  beforeEach(async () => {
+    eventId = (await prisma.event.create({ data: timed({ rrule: "FREQ=DAILY" }) })).id;
+  });
+
+  /** An exception of the 6 November occurrence, with no changes yet. */
+  function exception(overrides: Partial<Prisma.EventExceptionUncheckedCreateInput> = {}) {
+    return {
+      eventId,
+      originalStartAt: new Date("2026-11-06T08:00:00Z"),
+      updatedByUserId: dorId,
+      ...overrides,
+    } satisfies Prisma.EventExceptionUncheckedCreateInput;
+  }
+
+  async function expectExceptionRejected(
+    data: Prisma.EventExceptionUncheckedCreateInput,
+    constraint: string,
+  ) {
+    await expect(prisma.eventException.create({ data })).rejects.toThrow(constraint);
+  }
+
+  it("stores a cancelled occurrence, and a moved and renamed one", async () => {
+    const cancelled = await prisma.eventException.create({
+      data: exception({ isCancelled: true }),
+    });
+    const moved = await prisma.eventException.create({
+      data: exception({
+        originalStartAt: new Date("2026-11-07T08:00:00Z"),
+        title: "Dentist (moved)",
+        isAllDay: false,
+        startAt: new Date("2026-11-07T10:00:00Z"),
+        endAt: new Date("2026-11-07T11:00:00Z"),
+      }),
+    });
+    expect(cancelled.isCancelled).toBe(true);
+    expect(moved.isCancelled).toBe(false);
+    // Overrides left out keep the series' value.
+    expect(moved.location).toBeNull();
+  });
+
+  it("stores an all-day series' occurrence by its date", async () => {
+    const allDayId = (await prisma.event.create({ data: allDay({ rrule: "FREQ=YEARLY" }) })).id;
+    const stored = await prisma.eventException.create({
+      data: exception({
+        eventId: allDayId,
+        originalStartAt: null,
+        originalStartDate: new Date("2027-11-07"),
+        isCancelled: true,
+      }),
+    });
+    expect(stored.originalStartDate?.toISOString()).toBe("2027-11-07T00:00:00.000Z");
+  });
+
+  it("allows one exception per occurrence", async () => {
+    await prisma.eventException.create({ data: exception({ isCancelled: true }) });
+    await expectExceptionRejected(exception({ title: "Again" }), "originalStartAt");
+  });
+
+  it("goes with its event when the event is removed", async () => {
+    await prisma.eventException.create({ data: exception({ isCancelled: true }) });
+    await prisma.event.delete({ where: { id: eventId } });
+    expect(await prisma.eventException.count()).toBe(0);
+  });
+
+  describe("rejects", () => {
+    it("an occurrence with both an original time and an original date", () =>
+      expectExceptionRejected(
+        exception({ originalStartDate: new Date("2026-11-06") }),
+        "event_exception_original_start_check",
+      ));
+
+    it("an occurrence with no original start", () =>
+      expectExceptionRejected(
+        exception({ originalStartAt: null }),
+        "event_exception_original_start_check",
+      ));
+
+    it("a new start without a new end", () =>
+      expectExceptionRejected(
+        exception({ isAllDay: false, startAt: new Date("2026-11-06T10:00:00Z") }),
+        "event_exception_time_check",
+      ));
+
+    it("new times without saying whether it's all day", () =>
+      expectExceptionRejected(
+        exception({
+          startAt: new Date("2026-11-06T10:00:00Z"),
+          endAt: new Date("2026-11-06T11:00:00Z"),
+        }),
+        "event_exception_time_check",
+      ));
+
+    it("new times mixed with dates", () =>
+      expectExceptionRejected(
+        exception({
+          isAllDay: false,
+          startAt: new Date("2026-11-06T10:00:00Z"),
+          endAt: new Date("2026-11-06T11:00:00Z"),
+          startDate: new Date("2026-11-06"),
+        }),
+        "event_exception_time_check",
+      ));
+
+    it("new dates whose exclusive end is not after the start", () =>
+      expectExceptionRejected(
+        exception({
+          isAllDay: true,
+          startDate: new Date("2026-11-06"),
+          endDate: new Date("2026-11-06"),
+        }),
+        "event_exception_time_check",
+      ));
+
+    it("a cancelled occurrence with changes", () =>
+      expectExceptionRejected(
+        exception({ isCancelled: true, title: "Dentist" }),
+        "event_exception_cancelled_check",
+      ));
+
+    it("a blank title", () =>
+      expectExceptionRejected(exception({ title: "  " }), "event_exception_title_not_blank_check"));
   });
 });
