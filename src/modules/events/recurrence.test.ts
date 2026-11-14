@@ -3,6 +3,7 @@ import {
   type Repeat,
   type Series,
   fromRRule,
+  hasOccurrence,
   occurrencesBetween,
   toRRule,
   weekdayOf,
@@ -220,5 +221,27 @@ describe("occurrencesBetween, all-day", () => {
       "2027-11-05",
       "2028-11-05",
     ]);
+  });
+});
+
+describe("hasOccurrence", () => {
+  it("knows which starts belong to a timed series", () => {
+    const series = timed(
+      "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=3",
+      "2026-11-05T10:00+02:00",
+      "2026-11-05T11:00+02:00",
+    );
+    expect(hasOccurrence(series, "2026-11-12T08:00:00.000Z")).toBe(true);
+    // Same day at another time; another day; after the last occurrence.
+    expect(hasOccurrence(series, "2026-11-12T09:00:00.000Z")).toBe(false);
+    expect(hasOccurrence(series, "2026-11-13T08:00:00.000Z")).toBe(false);
+    expect(hasOccurrence(series, "2026-11-26T08:00:00.000Z")).toBe(false);
+  });
+
+  it("knows which dates belong to an all-day series", () => {
+    const series = allDay("FREQ=WEEKLY;BYDAY=TH;WKST=SU", "2026-11-05", "2026-11-07");
+    expect(hasOccurrence(series, "2026-11-12")).toBe(true);
+    // The second day of an occurrence is not where one starts.
+    expect(hasOccurrence(series, "2026-11-13")).toBe(false);
   });
 });

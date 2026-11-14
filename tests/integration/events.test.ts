@@ -10,6 +10,7 @@ import {
 } from "@/modules/events/events";
 import { toInstant } from "@/modules/events/time";
 import { type EventInput, validateEvent } from "@/modules/events/validation";
+import type { Prisma } from "@/generated/prisma/client";
 
 const TZ = "Asia/Jerusalem";
 let dorId: string;
@@ -58,9 +59,12 @@ async function create(overrides: Partial<EventInput> = {}, actor = dorId) {
 }
 
 /** The events in a range given as local Israel date-times. */
+function eventsBetween(start: [string, string], end: [string, string]) {
+  return listEvents(toInstant(...start, TZ), toInstant(...end, TZ), TZ);
+}
+
 async function titlesBetween(start: [string, string], end: [string, string]) {
-  const events = await listEvents(toInstant(...start, TZ), toInstant(...end, TZ), TZ);
-  return events.map((event) => event.title);
+  return (await eventsBetween(start, end)).map((event) => event.title);
 }
 
 describe("createEvent", () => {
@@ -159,6 +163,189 @@ describe("listEvents", () => {
     const event = await create();
     await deleteEvent(event.id, event.version, dorId);
     expect(await titlesBetween(["2026-11-05", "00:00"], ["2026-11-06", "00:00"])).toEqual([]);
+  });
+});
+
+describe("listEvents, repeating events", () => {
+  // Saving a series from the form comes in a later step; until then the rule is set
+  // directly in the database.
+  async function createSeries(rrule: string, overrides: Partial<EventInput> = {}) {
+    const event = await create(overrides);
+    await prisma.event.update({ where: { id: event.id }, data: { rrule } });
+    return event;
+  }
+
+  /** Thursdays at 10:00 from 5 November 2026: 5, 12, 19 and 26 November. */
+  const weekly = (overrides: Partial<EventInput> = {}) =>
+    createSeries("FREQ=WEEKLY;BYDAY=TH;WKST=SU", { title: "Pilates", ...overrides });
+
+  const november = () => eventsBetween(["2026-11-01", "00:00"], ["2026-12-01", "00:00"]);
+  const days = (events: { start: string }[]) => events.map((event) => event.start.slice(0, 10));
+
+  /** An exception of the 12 November occurrence (10:00 in Israel), by Maayan. */
+  const exceptionOf = (eventId: string, data: Partial<Prisma.EventExceptionUncheckedCreateInput>) =>
+    prisma.eventException.create({
+      data: {
+        eventId,
+        originalStartAt: new Date("2026-11-12T08:00:00Z"),
+        updatedByUserId: maayanId,
+        ...data,
+      },
+    });
+
+  it("shows each occurrence in the range, each with its own key", async () => {
+    const series = await weekly();
+    await create({
+      title: "Dentist",
+      startDate: "2026-11-12",
+      endDate: "2026-11-12",
+      startTime: "09:00",
+      endTime: "09:30",
+    });
+    const events = await november();
+    expect(events.map((event) => [event.title, event.start])).toEqual([
+      ["Pilates", "2026-11-05T08:00:00.000Z"],
+      ["Dentist", "2026-11-12T07:00:00.000Z"],
+      ["Pilates", "2026-11-12T08:00:00.000Z"],
+      ["Pilates", "2026-11-19T08:00:00.000Z"],
+      ["Pilates", "2026-11-26T08:00:00.000Z"],
+    ]);
+    const pilates = events.filter((event) => event.title === "Pilates");
+    expect(new Set(pilates.map((event) => event.id))).toEqual(new Set([series.id]));
+    expect(new Set(pilates.map((event) => event.key)).size).toBe(4);
+    expect(pilates[1]).toMatchObject({
+      key: `${series.id}@2026-11-12T08:00:00.000Z`,
+      end: "2026-11-12T09:00:00.000Z",
+      recurrence: {
+        rrule: "FREQ=WEEKLY;BYDAY=TH;WKST=SU",
+        originalStart: "2026-11-12T08:00:00.000Z",
+      },
+    });
+    // A one-off event: no recurrence, and its id as its key.
+    expect(events[1].recurrence).toBeNull();
+    expect(events[1].key).toBe(events[1].id);
+  });
+
+  it("finds the occurrences of a series that started long before the range", async () => {
+    await weekly();
+    expect(await titlesBetween(["2030-01-01", "00:00"], ["2030-01-08", "00:00"])).toEqual([
+      "Pilates",
+    ]);
+  });
+
+  it("shows nothing before a series starts or after it ends, nor of a deleted series", async () => {
+    await createSeries("FREQ=DAILY;COUNT=3", { title: "Three days" });
+    const deleted = await weekly({ title: "Deleted" });
+    await deleteEvent(deleted.id, 1, dorId);
+    expect(await titlesBetween(["2026-11-01", "00:00"], ["2026-11-05", "00:00"])).toEqual([]);
+    expect(await titlesBetween(["2026-11-08", "00:00"], ["2026-11-15", "00:00"])).toEqual([]);
+  });
+
+  it("leaves out a cancelled occurrence", async () => {
+    const series = await weekly();
+    await exceptionOf(series.id, { isCancelled: true });
+    expect(days(await november())).toEqual(["2026-11-05", "2026-11-19", "2026-11-26"]);
+  });
+
+  it("shows a changed occurrence with its changes, and the series' details otherwise", async () => {
+    const series = await weekly({ location: "Studio", description: "Bring a mat" });
+    await exceptionOf(series.id, { title: "Pilates (guest teacher)", description: "" });
+    let events = await november();
+    // Changed by Maayan after Dor created the series.
+    expect(events[1]).toMatchObject({
+      title: "Pilates (guest teacher)",
+      description: null,
+      location: "Studio",
+      start: "2026-11-12T08:00:00.000Z",
+      createdBy: "dor",
+      updatedBy: "maayan",
+    });
+    expect(events[2]).toMatchObject({
+      title: "Pilates",
+      description: "Bring a mat",
+      updatedBy: "dor",
+    });
+
+    // Then Dor moves the series to the park: the change reaches this occurrence too, and
+    // it's the latest change to it.
+    await prisma.event.update({ where: { id: series.id }, data: { location: "Park" } });
+    events = await november();
+    expect(events[1]).toMatchObject({
+      title: "Pilates (guest teacher)",
+      location: "Park",
+      updatedBy: "dor",
+    });
+  });
+
+  it("shows a moved occurrence where it was moved to, even from outside the range", async () => {
+    const series = await weekly();
+    await exceptionOf(series.id, {
+      isAllDay: false,
+      startAt: new Date("2026-12-02T08:00:00Z"),
+      endAt: new Date("2026-12-02T09:00:00Z"),
+    });
+    expect(days(await november())).toEqual(["2026-11-05", "2026-11-19", "2026-11-26"]);
+    const december = await eventsBetween(["2026-12-01", "00:00"], ["2026-12-08", "00:00"]);
+    expect(december.map((event) => [event.start, event.recurrence?.originalStart])).toEqual([
+      ["2026-12-02T08:00:00.000Z", "2026-11-12T08:00:00.000Z"],
+      ["2026-12-03T08:00:00.000Z", "2026-12-03T08:00:00.000Z"],
+    ]);
+  });
+
+  it("shows an occurrence moved to before the series' first one", async () => {
+    const series = await weekly();
+    await exceptionOf(series.id, {
+      originalStartAt: new Date("2026-11-05T08:00:00Z"),
+      isAllDay: true,
+      startDate: new Date("2026-11-02"),
+      endDate: new Date("2026-11-03"),
+    });
+    const events = await eventsBetween(["2026-11-01", "00:00"], ["2026-11-04", "00:00"]);
+    expect(events).toMatchObject([
+      { title: "Pilates", isAllDay: true, start: "2026-11-02", end: "2026-11-03" },
+    ]);
+  });
+
+  it("ignores an exception whose occurrence isn't in the series", async () => {
+    const series = await weekly();
+    // 13 November is a Friday.
+    await exceptionOf(series.id, {
+      originalStartAt: new Date("2026-11-13T08:00:00Z"),
+      isAllDay: false,
+      startAt: new Date("2026-11-13T08:00:00Z"),
+      endAt: new Date("2026-11-13T09:00:00Z"),
+    });
+    expect(await titlesBetween(["2026-11-13", "00:00"], ["2026-11-14", "00:00"])).toEqual([]);
+  });
+
+  it("repeats all-day events, and cancels one of them by its date", async () => {
+    const birthday = await createSeries("FREQ=YEARLY", {
+      title: "Birthday",
+      isAllDay: true,
+      startDate: "2026-11-05",
+      endDate: "2026-11-05",
+    });
+    await prisma.eventException.create({
+      data: {
+        eventId: birthday.id,
+        originalStartDate: new Date("2027-11-05"),
+        isCancelled: true,
+        updatedByUserId: dorId,
+      },
+    });
+    const inNovember = async (year: number) =>
+      (await eventsBetween([`${year}-11-01`, "00:00"], [`${year}-12-01`, "00:00"])).map((event) => [
+        event.start,
+        event.end,
+        event.key,
+      ]);
+    expect(await inNovember(2026)).toEqual([
+      ["2026-11-05", "2026-11-06", `${birthday.id}@2026-11-05`],
+    ]);
+    expect(await inNovember(2027)).toEqual([]);
+    expect(await inNovember(2028)).toEqual([
+      ["2028-11-05", "2028-11-06", `${birthday.id}@2028-11-05`],
+    ]);
   });
 });
 

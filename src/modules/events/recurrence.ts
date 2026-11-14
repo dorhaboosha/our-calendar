@@ -184,6 +184,23 @@ function timedOccurrences(series: Series, rangeStart: Date, rangeEnd: Date): Occ
   });
 }
 
+/**
+ * Whether the series has an occurrence starting exactly at originalStart (an ISO instant,
+ * or a date for an all-day series). An exception is shown only if its occurrence still
+ * belongs to the series.
+ */
+export function hasOccurrence(series: Series, originalStart: string): boolean {
+  const [from, to] = series.isAllDay
+    ? [
+        toInstant(originalStart, "00:00", series.timezone),
+        toInstant(addDays(originalStart, 1), "00:00", series.timezone),
+      ]
+    : [new Date(originalStart), new Date(new Date(originalStart).getTime() + 1)];
+  // Occurrences come back in the same formats: ISO instants from toISOString, or dates.
+  const start = series.isAllDay ? originalStart : from.toISOString();
+  return occurrencesBetween(series, from, to).some((occurrence) => occurrence.start === start);
+}
+
 /** Every occurrence lasts as many days as the first. */
 function allDayOccurrences(series: Series, rangeStart: Date, rangeEnd: Date): Occurrence[] {
   const days = daysBetween(series.start, series.end);

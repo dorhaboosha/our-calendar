@@ -121,6 +121,8 @@ describe("newEventValues", () => {
 describe("eventFormValues", () => {
   const saved: CalendarEvent = {
     id: "1",
+    key: "1",
+    recurrence: null,
     title: "Dentist",
     description: null,
     location: "Herzl 1",

@@ -1,19 +1,29 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { dateFromDb, dateToDb, instantRangeToDates } from "./time";
+import { type Occurrence, type Series, hasOccurrence, occurrencesBetween } from "./recurrence";
+import { compareDates, dateFromDb, dateToDb, instantRangeToDates } from "./time";
 import { SHARED_OWNER, type EventDraft } from "./validation";
 
 /** Longest range the calendar may ask for (a month view shows at most 6 weeks). */
 export const MAX_RANGE_DAYS = 100;
 
 /**
- * An event as sent to the browser. Timed events: start/end are ISO instants.
- * All-day events: start/end are "YYYY-MM-DD" dates with an EXCLUSIVE end, which is
- * also what FullCalendar expects.
+ * An event as sent to the browser: a one-off event, or one occurrence of a series.
+ * Timed events: start/end are ISO instants. All-day events: start/end are "YYYY-MM-DD"
+ * dates with an EXCLUSIVE end, which is also what FullCalendar expects.
  */
 export type CalendarEvent = {
+  /** The event's id; every occurrence of a series has the series' id. */
   id: string;
+  /** Unique among the events on screen: the id, plus the occurrence's original start. */
+  key: string;
+  /** Set on a series' occurrence. */
+  recurrence: {
+    rrule: string;
+    /** Identifies the occurrence, even after it was moved: its start as the rule makes it. */
+    originalStart: string;
+  } | null;
   title: string;
   description: string | null;
   location: string | null;
@@ -47,12 +57,34 @@ const eventInclude = {
 
 type EventRow = Prisma.EventGetPayload<{ include: typeof eventInclude }>;
 
+const seriesInclude = {
+  ...eventInclude,
+  exceptions: { include: { updatedBy: { select: { configKey: true } } } },
+} satisfies Prisma.EventInclude;
+
+type SeriesRow = Prisma.EventGetPayload<{ include: typeof seriesInclude }>;
+type ExceptionRow = SeriesRow["exceptions"][number];
+
+/** Start and end of an event, or of an exception's moved occurrence, as sent to the browser. */
+function timesOf(row: {
+  isAllDay: boolean | null;
+  startAt: Date | null;
+  endAt: Date | null;
+  startDate: Date | null;
+  endDate: Date | null;
+}): { isAllDay: boolean; start: string; end: string } {
+  return row.isAllDay
+    ? { isAllDay: true, start: dateFromDb(row.startDate!), end: dateFromDb(row.endDate!) }
+    : { isAllDay: false, start: row.startAt!.toISOString(), end: row.endAt!.toISOString() };
+}
+
+/** A one-off event, or a series as its first occurrence. */
 function toCalendarEvent(row: EventRow): CalendarEvent {
-  const [start, end] = row.isAllDay
-    ? [dateFromDb(row.startDate!), dateFromDb(row.endDate!)]
-    : [row.startAt!.toISOString(), row.endAt!.toISOString()];
+  const { start, end } = timesOf(row);
   return {
     id: row.id,
+    key: row.id,
+    recurrence: row.rrule ? { rrule: row.rrule, originalStart: start } : null,
     title: row.title,
     description: row.description,
     location: row.location,
@@ -70,7 +102,8 @@ function toCalendarEvent(row: EventRow): CalendarEvent {
 }
 
 /**
- * Events that overlap the half-open range [start, end), oldest start first. Deleted
+ * Events that overlap the half-open range [start, end), oldest start first: one-off
+ * events, and the occurrences of each series, with their exceptions applied. Deleted
  * events are left out. All-day events are matched by the local dates the range covers.
  */
 export async function listEvents(
@@ -79,9 +112,10 @@ export async function listEvents(
   timeZone: string,
 ): Promise<CalendarEvent[]> {
   const dates = instantRangeToDates(start, end, timeZone);
-  const rows = await prisma.event.findMany({
+  const oneOffRows = await prisma.event.findMany({
     where: {
       deletedAt: null,
+      rrule: null,
       OR: [
         { isAllDay: false, startAt: { lt: end }, endAt: { gt: start } },
         {
@@ -93,7 +127,108 @@ export async function listEvents(
     },
     include: eventInclude,
   });
-  return rows.map(toCalendarEvent).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  // A series may have occurrences in the range if it starts before the range ends, or if
+  // one of its occurrences was moved to before then. Its end (a count or a last date)
+  // is only known from the rule, so the rest is left to occurrencesBetween.
+  const startsBeforeEnd = [
+    { startAt: { lt: end } },
+    { startDate: { lt: dateToDb(dates.endDate) } },
+  ] satisfies Prisma.EventExceptionWhereInput[];
+  const seriesRows = await prisma.event.findMany({
+    where: {
+      deletedAt: null,
+      rrule: { not: null },
+      OR: [...startsBeforeEnd, { exceptions: { some: { OR: startsBeforeEnd } } }],
+    },
+    include: seriesInclude,
+  });
+  return [
+    ...oneOffRows.map(toCalendarEvent),
+    ...seriesRows.flatMap((row) => seriesOccurrences(row, start, end, dates)),
+  ].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+}
+
+/**
+ * A series' occurrences in the range, with its exceptions applied: a cancelled occurrence
+ * is left out, a changed one shows its changes, and a moved one shows where it was moved
+ * to, even from outside the range.
+ */
+function seriesOccurrences(
+  row: SeriesRow,
+  start: Date,
+  end: Date,
+  dates: { startDate: string; endDate: string },
+): CalendarEvent[] {
+  const first = toCalendarEvent(row);
+  const series: Series = {
+    rrule: row.rrule!,
+    isAllDay: row.isAllDay,
+    start: first.start,
+    end: first.end,
+    timezone: row.timezone,
+  };
+  const exceptions = new Map(
+    row.exceptions.map((exception) => [originalStartOf(exception), exception]),
+  );
+  const isMoved = (exception: ExceptionRow) => exception.isAllDay !== null;
+
+  const inPlace = occurrencesBetween(series, start, end).flatMap((occurrence) => {
+    const exception = exceptions.get(occurrence.start);
+    if (exception && (exception.isCancelled || isMoved(exception))) return [];
+    return [
+      occurrenceOf(first, occurrence.start, { ...occurrence, isAllDay: row.isAllDay }, exception),
+    ];
+  });
+
+  const moved = row.exceptions.flatMap((exception) => {
+    if (exception.isCancelled || !isMoved(exception)) return [];
+    const times = timesOf(exception);
+    const overlaps = times.isAllDay
+      ? compareDates(times.start, dates.endDate) < 0 && compareDates(times.end, dates.startDate) > 0
+      : new Date(times.start) < end && new Date(times.end) > start;
+    const originalStart = originalStartOf(exception);
+    // An exception whose occurrence is no longer part of the series is ignored.
+    return overlaps && hasOccurrence(series, originalStart)
+      ? [occurrenceOf(first, originalStart, times, exception)]
+      : [];
+  });
+
+  return [...inPlace, ...moved];
+}
+
+function originalStartOf(exception: ExceptionRow): string {
+  return exception.originalStartAt
+    ? exception.originalStartAt.toISOString()
+    : dateFromDb(exception.originalStartDate!);
+}
+
+/** One occurrence: the series' details, with the exception's changes if it has one. */
+function occurrenceOf(
+  first: CalendarEvent,
+  originalStart: string,
+  times: Occurrence & { isAllDay: boolean },
+  exception: ExceptionRow | undefined,
+): CalendarEvent {
+  // "" in an exception: cleared on this occurrence only.
+  const text = (changed: string | null | undefined, ofSeries: string | null) =>
+    changed === null || changed === undefined ? ofSeries : changed || null;
+  const changedLater = exception && exception.updatedAt.toISOString() > first.updatedAt;
+  return {
+    ...first,
+    key: `${first.id}@${originalStart}`,
+    recurrence: { rrule: first.recurrence!.rrule, originalStart },
+    title: exception?.title ?? first.title,
+    description: text(exception?.description, first.description),
+    location: text(exception?.location, first.location),
+    category: exception?.category ?? first.category,
+    isAllDay: times.isAllDay,
+    start: times.start,
+    end: times.end,
+    ...(changedLater && {
+      updatedBy: exception.updatedBy.configKey,
+      updatedAt: exception.updatedAt.toISOString(),
+    }),
+  };
 }
 
 /** By start; "YYYY-MM-DDT" sorts before any time on that day, so all-day events come first. */

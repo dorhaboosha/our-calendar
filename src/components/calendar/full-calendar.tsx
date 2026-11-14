@@ -225,7 +225,7 @@ export function Calendar({
       return events.map((event) => {
         const color = ownerColors[event.owner] ?? appConfig.sharedColor;
         return {
-          id: event.id,
+          id: event.key,
           title: event.title,
           start: event.start,
           end: event.end,
