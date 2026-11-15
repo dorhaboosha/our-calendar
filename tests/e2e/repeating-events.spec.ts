@@ -140,7 +140,7 @@ test("warns before a change to the times drops changes to single occurrences", a
   await details(page).getByRole("button", { name: "עריכה" }).click();
   await chooseScope(page, "כל המופעים");
   const form = page.getByRole("dialog", { name: "עריכת כל המופעים" });
-  const warning = form.getByText("שינוי השעות או הימים יבטל שינויים שנעשו במופעים בודדים.");
+  const warning = form.getByText("שינוי השעות או הימים יבטל שינויים ומחיקות שנעשו במופעים בודדים.");
   await form.getByLabel("כותרת", { exact: true }).fill("יוגה");
   await expect(warning).toHaveCount(0);
   await form.getByLabel("שעת התחלה", { exact: true }).fill("19:00");
@@ -149,4 +149,40 @@ test("warns before a change to the times drops changes to single occurrences", a
   await expect(form).toBeHidden();
   await expect(calendar(page).getByText("פילאטיס בחוץ")).toHaveCount(0);
   await expect(calendar(page).getByText("יוגה", { exact: true })).toHaveCount(6);
+});
+
+const SHOTS = process.env.E2E_SCREENSHOTS;
+
+test("on a phone: the repeat fields and the choice of occurrences fit the screen @mobile", async ({
+  page,
+}) => {
+  test.skip(test.info().project.name !== "mobile", "phone only");
+  const overflow = (locator: import("@playwright/test").Locator) =>
+    locator.evaluate((element) => element.scrollWidth - element.clientWidth);
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "אירוע חדש" }).click();
+  const form = page.getByRole("dialog", { name: "אירוע חדש" });
+  await form.getByLabel("כותרת", { exact: true }).fill("ריצה");
+  await form.getByLabel("חזרה", { exact: true }).selectOption("weekly");
+  await form.getByText("ראשון", { exact: true }).click();
+  await form.getByLabel("סיום החזרה", { exact: true }).selectOption("count");
+  await expect(form.getByLabel("שבת", { exact: true })).toBeVisible();
+  expect(await overflow(form.locator(".chakra-dialog__body"))).toBeLessThanOrEqual(0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/mobile-repeat-form.png`, fullPage: true });
+  await form.getByRole("button", { name: "שמירה" }).click();
+  await expect(form).toBeHidden();
+
+  // Today's occurrence, in the phone's day view.
+  await calendar(page).getByRole("button", { name: /ריצה/ }).click();
+  const run = page.getByRole("dialog", { name: "ריצה" });
+  await expect(run.getByText("חוזר כל שבוע בימים ראשון וחמישי, 10 פעמים בסך הכול")).toBeVisible();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/mobile-repeat-details.png` });
+  await run.getByRole("button", { name: "עריכה" }).click();
+  const scope = page.getByRole("dialog", { name: "עריכת אירוע חוזר" });
+  await expect(scope.getByRole("radio")).toHaveCount(3);
+  const box = (await scope.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/mobile-repeat-scope.png` });
 });

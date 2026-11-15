@@ -394,3 +394,137 @@ describe("all occurrences", () => {
     expect(await calendar()).toEqual([]);
   });
 });
+
+describe("edge cases", () => {
+  it("this and following without repeating makes the rest a one-off event", async () => {
+    const series = await createSeries();
+    const rest = await updated(
+      series,
+      { title: "Last one", startDate: "2026-11-19", endDate: "2026-11-19", repeat: undefined },
+      target("following", 19),
+    );
+    expect(rest.recurrence).toBeNull();
+    expect(await calendar()).toEqual([
+      "5 Nov, 10:00 Pilates",
+      "12 Nov, 10:00 Pilates",
+      "19 Nov, 10:00 Last one",
+    ]);
+  });
+
+  it("splitting every two weeks keeps the same weeks", async () => {
+    // Sunday and Tuesday every two weeks from Sunday 1 November: 1, 3, 15, 17, 29.
+    const series = await createSeries({
+      startDate: "2026-11-01",
+      endDate: "2026-11-01",
+      repeat: { frequency: "biweekly", weekdays: ["SU", "TU"], end: "never" },
+    });
+    await updated(
+      series,
+      {
+        title: "Yoga",
+        startDate: "2026-11-17",
+        endDate: "2026-11-17",
+        repeat: { frequency: "biweekly", weekdays: ["SU", "TU"], end: "never" },
+      },
+      target("following", 17),
+    );
+    expect((await calendar()).slice(0, 6)).toEqual([
+      "1 Nov, 10:00 Pilates",
+      "3 Nov, 10:00 Pilates",
+      "15 Nov, 10:00 Pilates",
+      "17 Nov, 10:00 Yoga",
+      "29 Nov, 10:00 Yoga",
+      "1 Dec, 10:00 Yoga",
+    ]);
+  });
+
+  it("an occurrence after the clocks change is found and changed at its local time", async () => {
+    // Thursdays at 10:00 from 15 October: summer time ends on 25 October.
+    const series = await createSeries({ startDate: "2026-10-15", endDate: "2026-10-15" });
+    const after = toInstant("2026-10-29", "10:00", TZ).toISOString();
+    expect(after).toBe("2026-10-29T08:00:00.000Z");
+    const changed = await updated(
+      series,
+      { title: "After the change", startDate: "2026-10-29", endDate: "2026-10-29" },
+      { scope: "this", originalStart: after },
+    );
+    expect(changed).toMatchObject({ title: "After the change", start: after });
+  });
+
+  it("one occurrence of a timed series can become all day", async () => {
+    const series = await createSeries();
+    const occurrence = await updated(
+      series,
+      { isAllDay: true, startDate: "2026-11-12", endDate: "2026-11-12" },
+      target("this", 12),
+    );
+    expect(occurrence).toMatchObject({ isAllDay: true, start: "2026-11-12", end: "2026-11-13" });
+    expect((await calendar())[1]).toBe("12 Nov, 02:00 Pilates");
+  });
+
+  it("an all-day series: one year changed, then split from a later year", async () => {
+    const birthday = await createSeries({
+      title: "Birthday",
+      isAllDay: true,
+      repeat: { frequency: "yearly", end: "never" },
+    });
+    const year = (y: number): Partial<EventInput> => ({
+      isAllDay: true,
+      startDate: `${y}-11-05`,
+      endDate: `${y}-11-05`,
+      repeat: { frequency: "yearly", end: "never" },
+    });
+    await updated(
+      birthday,
+      { title: "Birthday party", ...year(2027), repeat: undefined },
+      {
+        scope: "this",
+        originalStart: "2027-11-05",
+      },
+    );
+    expect(await prisma.eventException.findFirstOrThrow()).toMatchObject({
+      title: "Birthday party",
+      originalStartAt: null,
+    });
+    await updated(
+      birthday,
+      { title: "Birthday!", ...year(2029) },
+      {
+        scope: "following",
+        originalStart: "2029-11-05",
+      },
+      2,
+    );
+    const titles = async (y: number) =>
+      (
+        await listEvents(
+          toInstant(`${y}-11-01`, "00:00", TZ),
+          toInstant(`${y}-12-01`, "00:00", TZ),
+          TZ,
+        )
+      ).map((event) => event.title);
+    expect(await titles(2027)).toEqual(["Birthday party"]);
+    expect(await titles(2028)).toEqual(["Birthday"]);
+    expect(await titles(2029)).toEqual(["Birthday!"]);
+    expect((await prisma.event.findFirstOrThrow({ where: { id: birthday.id } })).rrule).toBe(
+      "FREQ=YEARLY;UNTIL=20291104",
+    );
+  });
+
+  it("two people changing the same series: the second save is refused", async () => {
+    const series = await createSeries();
+    await updated(series, { title: "Maayan's" }, target("this", 12));
+    const dors = await updateEvent(
+      series.id,
+      1,
+      draft({ title: "Dor's" }),
+      dorId,
+      target("all", 5),
+    );
+    expect(dors).toEqual({ ok: false, reason: "conflict" });
+    expect(await deleteEvent(series.id, 1, dorId, target("following", 19))).toEqual({
+      ok: false,
+      reason: "conflict",
+    });
+  });
+});
