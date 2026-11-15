@@ -44,7 +44,7 @@ export type RepeatFormValues = {
 
 export const DEFAULT_REPEAT_COUNT = "10";
 
-const NO_REPEAT: RepeatFormValues = {
+export const NO_REPEAT: RepeatFormValues = {
   frequency: "none",
   weekdays: [],
   end: "never",
@@ -170,7 +170,11 @@ function repeatFormValues(event: CalendarEvent, timeZone: string): RepeatFormVal
     weekdays,
     end: end.kind,
     until: end.kind === "until" ? end.lastDate : "",
-    count: end.kind === "count" ? String(end.count) : DEFAULT_REPEAT_COUNT,
+    // From this occurrence on: what "this and following" would repeat.
+    count:
+      end.kind === "count"
+        ? String(event.recurrence.remainingCount ?? end.count)
+        : DEFAULT_REPEAT_COUNT,
   };
 }
 
@@ -271,6 +275,23 @@ export function withRepeatEnd(values: EventFormValues, end: RepeatEnd["kind"]): 
       ? Temporal.PlainDate.from(values.startDate).add({ months: 1 }).toString()
       : values.repeat.until;
   return { ...values, repeat: { ...values.repeat, end, until } };
+}
+
+/**
+ * Whether the times or the days of the series changed: the change that drops changes to
+ * single occurrences. A new end (a last date or a number of times) doesn't count.
+ */
+export function timingChanged(before: EventFormValues, after: EventFormValues): boolean {
+  const days = (values: EventFormValues) => [...values.repeat.weekdays].sort().join();
+  return (
+    before.isAllDay !== after.isAllDay ||
+    before.startDate !== after.startDate ||
+    before.endDate !== after.endDate ||
+    (!after.isAllDay &&
+      (before.startTime !== after.startTime || before.endTime !== after.endTime)) ||
+    before.repeat.frequency !== after.repeat.frequency ||
+    (isWeekly(after.repeat.frequency) && days(before) !== days(after))
+  );
 }
 
 /** What the server action receives; times are left out of an all-day event. */

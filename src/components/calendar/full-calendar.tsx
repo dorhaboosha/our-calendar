@@ -29,7 +29,7 @@ import { EventDetailsDialog } from "@/components/events/event-details-dialog";
 import { EventFormDialog } from "@/components/events/event-form-dialog";
 import { EditScopeDialog } from "@/components/events/repeat-scope";
 import { getEventAction } from "@/app/(app)/event-actions";
-import type { CalendarEvent } from "@/modules/events/events";
+import type { CalendarEvent, OccurrenceTarget } from "@/modules/events/events";
 import type { RepeatScope } from "@/modules/events/recurrence";
 import {
   type EventFormValues,
@@ -80,7 +80,12 @@ type Panel =
   /** An occurrence of a series: which occurrences to edit, before the form opens. */
   | { kind: "editScope"; event: CalendarEvent }
   /** For "all", event is the series itself rather than the occurrence clicked. */
-  | { kind: "edit"; event: CalendarEvent; scope?: RepeatScope }
+  | {
+      kind: "edit";
+      event: CalendarEvent;
+      target?: OccurrenceTarget;
+      hasChangedOccurrences?: boolean;
+    }
   | { kind: "delete"; event: CalendarEvent };
 
 export function Calendar({
@@ -185,8 +190,16 @@ export function Calendar({
   // Editing all occurrences starts from the series itself, as now stored: the occurrence
   // clicked may have its own changes and its own date.
   async function chooseEditScope(event: CalendarEvent, scope: RepeatScope) {
-    if (scope !== "all") {
-      setPanel({ kind: "edit", event, scope });
+    const { originalStart, changedOccurrences } = event.recurrence!;
+    const target = { scope, originalStart };
+    if (scope === "this") {
+      setPanel({ kind: "edit", event, target });
+      return null;
+    }
+    if (scope === "following") {
+      // Original starts compare as text: all ISO instants, or all dates.
+      const later = changedOccurrences.some((start) => start >= originalStart);
+      setPanel({ kind: "edit", event, target, hasChangedOccurrences: later });
       return null;
     }
     const result = await getEventAction(event.id);
@@ -194,7 +207,13 @@ export function Calendar({
       refetchEvents();
       return result.message;
     }
-    setPanel({ kind: "edit", event: result.event, scope });
+    const series = result.event;
+    setPanel({
+      kind: "edit",
+      event: series,
+      target,
+      hasChangedOccurrences: (series.recurrence?.changedOccurrences.length ?? 0) > 0,
+    });
     return null;
   }
 
@@ -348,7 +367,8 @@ export function Calendar({
         <EventFormDialog
           initialValues={eventFormValues(panel.event, appConfig.timeZone)}
           editing={{ id: panel.event.id, version: panel.event.version }}
-          scope={panel.scope}
+          target={panel.target}
+          hasChangedOccurrences={panel.hasChangedOccurrences}
           onClose={closePanel}
           onSaved={onEventSaved}
           onStale={refetchEvents}

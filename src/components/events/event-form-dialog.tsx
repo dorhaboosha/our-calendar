@@ -20,10 +20,12 @@ import { useTranslations } from "next-intl";
 import { type FormEvent, useState } from "react";
 import { createEventAction, updateEventAction } from "@/app/(app)/event-actions";
 import { appConfig } from "@/config/app.config";
-import type { CalendarEvent } from "@/modules/events/events";
+import type { CalendarEvent, OccurrenceTarget } from "@/modules/events/events";
 import {
   type EventFormValues,
+  NO_REPEAT,
   type RepeatFormValues,
+  timingChanged,
   toEventInput,
   withAllDay,
   withFrequency,
@@ -31,7 +33,7 @@ import {
   withStart,
   withWeekday,
 } from "@/modules/events/form";
-import { FREQUENCIES, type RepeatScope, WEEKDAYS } from "@/modules/events/recurrence";
+import { FREQUENCIES, WEEKDAYS } from "@/modules/events/recurrence";
 import {
   DESCRIPTION_MAX,
   LOCATION_MAX,
@@ -47,10 +49,16 @@ type Props = {
   /** The event being edited, at the version that was loaded; absent for a new event. */
   editing?: { id: string; version: number };
   /**
-   * Editing a series: which occurrences. "this" has no repeat choices of its own, and
-   * keeps the series' owner. For "all", initialValues are the series' own.
+   * Editing a series: which occurrences, and the occurrence the edit was made from.
+   * "this" has no repeat choices of its own, and keeps the series' owner. For "all",
+   * initialValues are the series' own.
    */
-  scope?: RepeatScope;
+  target?: OccurrenceTarget;
+  /**
+   * Some occurrences this edit is for were changed on their own: changing the times or
+   * the days drops those changes, so the form warns first.
+   */
+  hasChangedOccurrences?: boolean;
   onClose: () => void;
   /** Called with the saved event after a successful save, before the dialog closes. */
   onSaved: (event: CalendarEvent) => void;
@@ -68,7 +76,8 @@ type Props = {
 export function EventFormDialog({
   initialValues,
   editing,
-  scope,
+  target,
+  hasChangedOccurrences = false,
   onClose,
   onSaved,
   onStale,
@@ -88,9 +97,10 @@ export function EventFormDialog({
     setPending(true);
     setFormError(null);
     try {
-      const input = toEventInput(values);
+      // One occurrence has no repeat choices of its own.
+      const input = toEventInput(scope === "this" ? { ...values, repeat: NO_REPEAT } : values);
       const result = editing
-        ? await updateEventAction(editing.id, editing.version, input)
+        ? await updateEventAction(editing.id, editing.version, input, target)
         : await createEventAction(input);
       if (result.ok) {
         onSaved(result.event);
@@ -118,7 +128,10 @@ export function EventFormDialog({
 
   const { repeat } = values;
   const isWeekly = repeat.frequency === "weekly" || repeat.frequency === "biweekly";
+  const scope = target?.scope;
   const oneOccurrence = scope === "this";
+  const dropsChanges =
+    hasChangedOccurrences && !oneOccurrence && timingChanged(initialValues, values);
   const title = !editing
     ? t("eventForm.createTitle")
     : scope === "this"
@@ -389,6 +402,13 @@ export function EventFormDialog({
                         </Field.Root>
                       )}
                     </Grid>
+                  )}
+
+                  {dropsChanges && (
+                    <Alert.Root status="warning">
+                      <Alert.Indicator />
+                      <Alert.Title>{t("eventForm.dropsChanges")}</Alert.Title>
+                    </Alert.Root>
                   )}
 
                   <Field.Root {...field("location")}>

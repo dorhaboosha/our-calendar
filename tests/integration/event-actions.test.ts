@@ -136,4 +136,43 @@ describe("event actions", () => {
       message: messages.events.errors.notFound,
     });
   });
+
+  it("change one occurrence of a series, and reject a malformed choice of occurrences", async () => {
+    await signInAs("dor");
+    const created = await createEventAction({
+      ...input,
+      repeat: { frequency: "daily", end: "never" },
+    });
+    if (!created.ok || !("event" in created)) throw new Error("create failed");
+    const { id } = created.event;
+    const nextDay = { scope: "this", originalStart: "2026-11-06T17:00:00.000Z" };
+
+    expect(
+      await updateEventAction(
+        id,
+        1,
+        { ...input, title: "Dinner out", startDate: "2026-11-06", endDate: "2026-11-06" },
+        nextDay,
+      ),
+    ).toMatchObject({ ok: true, event: { title: "Dinner out", start: nextDay.originalStart } });
+    expect(await deleteEventAction(id, 2, nextDay)).toEqual({ ok: true });
+    expect(await prisma.eventException.findFirst()).toMatchObject({ isCancelled: true });
+
+    for (const target of [
+      "this",
+      { scope: "some", originalStart: nextDay.originalStart },
+      { scope: "this" },
+      { scope: "this", originalStart: "x".repeat(41) },
+    ]) {
+      expect(await updateEventAction(id, 3, input, target)).toEqual({
+        ok: false,
+        message: messages.events.errors.notFound,
+      });
+      expect(await deleteEventAction(id, 3, target)).toEqual({
+        ok: false,
+        message: messages.events.errors.notFound,
+      });
+    }
+    expect(await prisma.event.findUniqueOrThrow({ where: { id } })).toMatchObject({ version: 3 });
+  });
 });

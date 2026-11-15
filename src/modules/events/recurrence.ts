@@ -9,6 +9,7 @@ import {
   addDays,
   compareDates,
   instantRangeToDates,
+  isLocalDate,
   toInstant,
   toLocal,
 } from "./time";
@@ -89,11 +90,7 @@ export function toRRule(repeat: Repeat, isAllDay: boolean, timeZone: string): st
     // second of the last date in the series' time zone.
     const until = isAllDay
       ? compactDate(end.lastDate)
-      : Temporal.Instant.fromEpochMilliseconds(
-          toInstant(addDays(end.lastDate, 1), "00:00", timeZone).getTime() - 1000,
-        )
-          .toString()
-          .replace(/[-:]/g, "");
+      : utcStamp(toInstant(addDays(end.lastDate, 1), "00:00", timeZone).getTime() - 1000);
     parts.push(`UNTIL=${until}`);
   }
   return parts.join(";");
@@ -127,6 +124,11 @@ export function fromRRule(rrule: string, isAllDay: boolean, timeZone: string): R
     weekdays: isWeekly(frequency) ? ((fields.get("BYDAY")?.split(",") ?? []) as Weekday[]) : [],
     end,
   };
+}
+
+/** A moment as RRULE writes UTC times: 1798754399000 -> "20261231T215959Z". */
+function utcStamp(epochMilliseconds: number): string {
+  return Temporal.Instant.fromEpochMilliseconds(epochMilliseconds).toString().replace(/[-:]/g, "");
 }
 
 /** "20261231T215959Z" -> "2026-12-31T21:59:59Z". */
@@ -189,20 +191,64 @@ function timedOccurrences(series: Series, rangeStart: Date, rangeEnd: Date): Occ
 }
 
 /**
- * Whether the series has an occurrence starting exactly at originalStart (an ISO instant,
- * or a date for an all-day series). An exception is shown only if its occurrence still
- * belongs to the series.
+ * The occurrence of the series that starts exactly at originalStart (an ISO instant, or a
+ * date for an all-day series), or null if the series has none there. An exception
+ * counts only while its occurrence still belongs to the series.
  */
-export function hasOccurrence(series: Series, originalStart: string): boolean {
-  const [from, to] = series.isAllDay
-    ? [
-        toInstant(originalStart, "00:00", series.timezone),
-        toInstant(addDays(originalStart, 1), "00:00", series.timezone),
-      ]
-    : [new Date(originalStart), new Date(new Date(originalStart).getTime() + 1)];
+export function occurrenceAt(series: Series, originalStart: string): Occurrence | null {
+  let from: Date;
+  let to: Date;
+  if (series.isAllDay) {
+    if (!isLocalDate(originalStart)) return null;
+    from = toInstant(originalStart, "00:00", series.timezone);
+    to = toInstant(addDays(originalStart, 1), "00:00", series.timezone);
+  } else {
+    from = new Date(originalStart);
+    if (isLocalDate(originalStart) || Number.isNaN(from.getTime())) return null;
+    to = new Date(from.getTime() + 1);
+  }
   // Occurrences come back in the same formats: ISO instants from toISOString, or dates.
   const start = series.isAllDay ? originalStart : from.toISOString();
-  return occurrencesBetween(series, from, to).some((occurrence) => occurrence.start === start);
+  return (
+    occurrencesBetween(series, from, to).find((occurrence) => occurrence.start === start) ?? null
+  );
+}
+
+/** How many occurrences of the series start before originalStart. */
+export function countBefore(series: Series, originalStart: string): number {
+  const instant = (start: string) =>
+    series.isAllDay ? toInstant(start, "00:00", series.timezone) : new Date(start);
+  return occurrencesBetween(series, instant(series.start), instant(originalStart)).filter(
+    (occurrence) => occurrence.start < originalStart,
+  ).length;
+}
+
+/** The ways a rule can end: by a number of times or by a last date. */
+const isEnd = (part: string) => part.startsWith("COUNT=") || part.startsWith("UNTIL=");
+
+/**
+ * The series' rule, ending just before its occurrence at originalStart: the part of the
+ * series that "this and following" leaves in place.
+ */
+export function endBefore(series: Series, originalStart: string): string {
+  const until = series.isAllDay
+    ? compactDate(addDays(originalStart, -1))
+    : utcStamp(new Date(originalStart).getTime() - 1000);
+  return [...series.rrule.split(";").filter((part) => !isEnd(part)), `UNTIL=${until}`].join(";");
+}
+
+/** The rule without its end: two rules with the same pattern repeat on the same days. */
+export function rulePattern(rrule: string | null): string {
+  return (rrule ?? "")
+    .split(";")
+    .filter((part) => part && !isEnd(part))
+    .join(";");
+}
+
+/** The COUNT of a rule, or null. */
+export function countOf(rrule: string): number | null {
+  const count = rrule.split(";").find((part) => part.startsWith("COUNT="));
+  return count ? Number(count.slice("COUNT=".length)) : null;
 }
 
 /** Every occurrence lasts as many days as the first. */

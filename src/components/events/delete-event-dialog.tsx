@@ -26,14 +26,17 @@ export function DeleteEventDialog({ event, onCancel, onDeleted, onStale }: Props
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  // Sent to the server with the deletion in the next step.
   const [scope, setScope] = useState<RepeatScope>("this");
 
   async function confirm() {
     setPending(true);
     setError(null);
     try {
-      const result = await deleteEventAction(event.id, event.version);
+      const result = await deleteEventAction(
+        event.id,
+        event.version,
+        event.recurrence ? { scope, originalStart: event.recurrence.originalStart } : undefined,
+      );
       if (result.ok) {
         onDeleted();
         return;

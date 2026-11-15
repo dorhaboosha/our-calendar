@@ -3,7 +3,11 @@ import {
   type Repeat,
   type Series,
   fromRRule,
-  hasOccurrence,
+  countBefore,
+  countOf,
+  endBefore,
+  occurrenceAt,
+  rulePattern,
   occurrencesBetween,
   toRRule,
   weekdayOf,
@@ -224,24 +228,67 @@ describe("occurrencesBetween, all-day", () => {
   });
 });
 
-describe("hasOccurrence", () => {
-  it("knows which starts belong to a timed series", () => {
+describe("occurrenceAt", () => {
+  it("finds the occurrence of a timed series that starts at a given moment", () => {
     const series = timed(
       "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=3",
       "2026-11-05T10:00+02:00",
       "2026-11-05T11:00+02:00",
     );
-    expect(hasOccurrence(series, "2026-11-12T08:00:00.000Z")).toBe(true);
-    // Same day at another time; another day; after the last occurrence.
-    expect(hasOccurrence(series, "2026-11-12T09:00:00.000Z")).toBe(false);
-    expect(hasOccurrence(series, "2026-11-13T08:00:00.000Z")).toBe(false);
-    expect(hasOccurrence(series, "2026-11-26T08:00:00.000Z")).toBe(false);
+    expect(occurrenceAt(series, "2026-11-12T08:00:00.000Z")).toEqual({
+      start: "2026-11-12T08:00:00.000Z",
+      end: "2026-11-12T09:00:00.000Z",
+    });
+    // The same moment written another way.
+    expect(occurrenceAt(series, "2026-11-12T10:00:00+02:00")).not.toBeNull();
+    // Same day at another time; another day; after the last occurrence; not a moment.
+    expect(occurrenceAt(series, "2026-11-12T09:00:00.000Z")).toBeNull();
+    expect(occurrenceAt(series, "2026-11-13T08:00:00.000Z")).toBeNull();
+    expect(occurrenceAt(series, "2026-11-26T08:00:00.000Z")).toBeNull();
+    expect(occurrenceAt(series, "2026-11-12")).toBeNull();
+    expect(occurrenceAt(series, "soon")).toBeNull();
   });
 
-  it("knows which dates belong to an all-day series", () => {
+  it("finds the occurrence of an all-day series that starts on a given date", () => {
     const series = allDay("FREQ=WEEKLY;BYDAY=TH;WKST=SU", "2026-11-05", "2026-11-07");
-    expect(hasOccurrence(series, "2026-11-12")).toBe(true);
+    expect(occurrenceAt(series, "2026-11-12")).toEqual({ start: "2026-11-12", end: "2026-11-14" });
     // The second day of an occurrence is not where one starts.
-    expect(hasOccurrence(series, "2026-11-13")).toBe(false);
+    expect(occurrenceAt(series, "2026-11-13")).toBeNull();
+    expect(occurrenceAt(series, "2026-11-12T00:00:00.000Z")).toBeNull();
+  });
+});
+
+describe("splitting a series", () => {
+  const weekly = timed(
+    "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=10",
+    "2026-11-05T10:00+02:00",
+    "2026-11-05T11:00+02:00",
+  );
+
+  it("ends the rule just before an occurrence, instead of after a number of times", () => {
+    const before = endBefore(weekly, "2026-11-19T08:00:00.000Z");
+    expect(before).toBe("FREQ=WEEKLY;BYDAY=TH;WKST=SU;UNTIL=20261119T075959Z");
+    expect(
+      starts({ ...weekly, rrule: before }, "2026-11-01T00:00+02:00", "2027-02-01T00:00+02:00"),
+    ).toEqual(["2026-11-05T08:00:00.000Z", "2026-11-12T08:00:00.000Z"]);
+    const birthday = allDay("FREQ=YEARLY;UNTIL=20301105", "2026-11-05", "2026-11-06");
+    expect(endBefore(birthday, "2028-11-05")).toBe("FREQ=YEARLY;UNTIL=20281104");
+  });
+
+  it("counts the occurrences before one", () => {
+    expect(countBefore(weekly, "2026-11-05T08:00:00.000Z")).toBe(0);
+    expect(countBefore(weekly, "2026-11-19T08:00:00.000Z")).toBe(2);
+    const birthday = allDay("FREQ=YEARLY", "2026-11-05", "2026-11-06");
+    expect(countBefore(birthday, "2029-11-05")).toBe(3);
+  });
+
+  it("compares rules without their ends", () => {
+    expect(rulePattern("FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=10")).toBe(
+      "FREQ=WEEKLY;BYDAY=TH;WKST=SU",
+    );
+    expect(rulePattern("FREQ=DAILY;UNTIL=20261231T215959Z")).toBe("FREQ=DAILY");
+    expect(rulePattern(null)).toBe("");
+    expect(countOf("FREQ=DAILY;COUNT=7")).toBe(7);
+    expect(countOf("FREQ=DAILY")).toBeNull();
   });
 });

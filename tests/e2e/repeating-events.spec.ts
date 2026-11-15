@@ -1,16 +1,18 @@
 import type { Page } from "@playwright/test";
-import { expect, insertEvent, test } from "./fixtures";
+import { db, expect, insertEvent, test } from "./fixtures";
 
 // Repeating events in the calendar and their dialogs. The clock is Thursday 5 November
 // 2026, 09:20 in Israel; Dor is signed in. The series: pilates every Thursday at 18:00
 // from 5 November.
 const NOW = new Date("2026-11-05T09:20:00+02:00");
 
+let seriesId: string;
+
 test.beforeEach(async ({ page, signInAs }) => {
   await page.clock.setFixedTime(NOW);
   await signInAs("maayan");
   await signInAs("dor");
-  await insertEvent({
+  seriesId = await insertEvent({
     title: "פילאטיס",
     owner: "maayan",
     category: "personal",
@@ -82,4 +84,69 @@ test("deleting an occurrence asks which occurrences", async ({ page }) => {
   await expect(confirm.getByRole("radio", { name: "המופע הזה", exact: true })).toBeChecked();
   // Focus starts on "cancel", as for any deletion.
   await expect(confirm.getByRole("button", { name: "ביטול" })).toBeFocused();
+});
+
+const occurrences = (page: Page) => calendar(page).getByText(/^פילאטיס/);
+
+async function chooseScope(page: Page, scope: string) {
+  const dialog = page.getByRole("dialog", { name: "עריכת אירוע חוזר" });
+  await dialog.getByText(scope, { exact: true }).click();
+  await dialog.getByRole("button", { name: "המשך" }).click();
+}
+
+test("saves a change to one occurrence only", async ({ page }) => {
+  await openOccurrence(page, 12);
+  await details(page).getByRole("button", { name: "עריכה" }).click();
+  await chooseScope(page, "המופע הזה");
+  const form = page.getByRole("dialog", { name: "עריכת המופע" });
+  await form.getByLabel("כותרת", { exact: true }).fill("פילאטיס עם מורה מחליפה");
+  await form.getByRole("button", { name: "שמירה" }).click();
+  await expect(form).toBeHidden();
+
+  const cell = (day: string) => calendar(page).locator(`[role="cell"][data-date="2026-11-${day}"]`);
+  await expect(cell("12").getByText("פילאטיס עם מורה מחליפה")).toBeVisible();
+  await expect(cell("19").getByText("פילאטיס", { exact: true })).toBeVisible();
+  const { rows } = await db.query('SELECT title FROM "event_exception"');
+  expect(rows).toEqual([{ title: "פילאטיס עם מורה מחליפה" }]);
+});
+
+test("deletes one occurrence, or this and the following ones", async ({ page }) => {
+  await openOccurrence(page, 12);
+  await expect(occurrences(page)).toHaveCount(6);
+  await details(page).getByRole("button", { name: "מחיקה" }).click();
+  const confirm = page.getByRole("alertdialog", { name: "למחוק אירוע חוזר?" });
+  await confirm.getByRole("button", { name: "מחיקה" }).click();
+  await expect(confirm).toBeHidden();
+  await expect(occurrences(page)).toHaveCount(5);
+
+  const cell = calendar(page).locator('[role="cell"][data-date="2026-11-26"]');
+  await cell.getByRole("button", { name: /פילאטיס/ }).click();
+  await details(page).getByRole("button", { name: "מחיקה" }).click();
+  await confirm.getByText("המופע הזה וכל הבאים", { exact: true }).click();
+  await confirm.getByRole("button", { name: "מחיקה" }).click();
+  await expect(confirm).toBeHidden();
+  // 5 and 19 November are left.
+  await expect(occurrences(page)).toHaveCount(2);
+});
+
+test("warns before a change to the times drops changes to single occurrences", async ({ page }) => {
+  await db.query(
+    `INSERT INTO "event_exception" (id, "eventId", "originalStartAt", title, "updatedByUserId", "updatedAt")
+     SELECT gen_random_uuid(), $1, '2026-11-12T16:00:00Z', 'פילאטיס בחוץ', id, now()
+       FROM "user" WHERE "configKey" = 'dor'`,
+    [seriesId],
+  );
+  await openOccurrence(page, 19);
+  await details(page).getByRole("button", { name: "עריכה" }).click();
+  await chooseScope(page, "כל המופעים");
+  const form = page.getByRole("dialog", { name: "עריכת כל המופעים" });
+  const warning = form.getByText("שינוי השעות או הימים יבטל שינויים שנעשו במופעים בודדים.");
+  await form.getByLabel("כותרת", { exact: true }).fill("יוגה");
+  await expect(warning).toHaveCount(0);
+  await form.getByLabel("שעת התחלה", { exact: true }).fill("19:00");
+  await expect(warning).toBeVisible();
+  await form.getByRole("button", { name: "שמירה" }).click();
+  await expect(form).toBeHidden();
+  await expect(calendar(page).getByText("פילאטיס בחוץ")).toHaveCount(0);
+  await expect(calendar(page).getByText("יוגה", { exact: true })).toHaveCount(6);
 });

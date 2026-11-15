@@ -107,6 +107,8 @@ describe("createEvent", () => {
     expect(event.recurrence).toEqual({
       rrule: "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=3",
       originalStart: "2026-11-05T08:00:00.000Z",
+      changedOccurrences: [],
+      remainingCount: 3,
     });
     expect(
       (await eventsBetween(["2026-11-01", "00:00"], ["2026-12-01", "00:00"])).map(
