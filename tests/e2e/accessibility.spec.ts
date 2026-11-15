@@ -112,6 +112,39 @@ test.describe("signed in", () => {
     expect(await violations(page), "repeat fields with errors").toEqual([]);
   });
 
+  test("the dialogs of a repeating event", async ({ page }) => {
+    await insertEvent({
+      title: "פילאטיס",
+      owner: "maayan",
+      start: "2026-11-05T18:00:00+02:00",
+      end: "2026-11-05T19:00:00+02:00",
+      rrule: "FREQ=WEEKLY;BYDAY=TH;WKST=SU",
+    });
+    await page.goto("/?view=month");
+    await page
+      .getByTestId("calendar")
+      .getByRole("button", { name: /פילאטיס/ })
+      .first()
+      .click();
+    const details = page.getByRole("dialog", { name: "פילאטיס" });
+    await expect(details.getByText("חוזר כל שבוע ביום חמישי")).toBeVisible();
+    expect(await violations(page), "details").toEqual([]);
+
+    await details.getByRole("button", { name: "מחיקה" }).click();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    expect(await violations(page), "delete").toEqual([]);
+    await page.getByRole("alertdialog").getByRole("button", { name: "ביטול" }).click();
+
+    await details.getByRole("button", { name: "עריכה" }).click();
+    const scope = page.getByRole("dialog", { name: "עריכת אירוע חוזר" });
+    await expect(scope).toBeVisible();
+    expect(await violations(page), "edit scope").toEqual([]);
+
+    await scope.getByRole("button", { name: "המשך" }).click();
+    await expect(page.getByRole("dialog", { name: "עריכת המופע" })).toBeVisible();
+    expect(await violations(page), "form for one occurrence").toEqual([]);
+  });
+
   test("settings", async ({ page }) => {
     await page.goto("/settings");
     await page.waitForLoadState("networkidle");

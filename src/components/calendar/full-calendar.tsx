@@ -27,7 +27,10 @@ import { appConfig } from "@/config/app.config";
 import { DeleteEventDialog } from "@/components/events/delete-event-dialog";
 import { EventDetailsDialog } from "@/components/events/event-details-dialog";
 import { EventFormDialog } from "@/components/events/event-form-dialog";
+import { EditScopeDialog } from "@/components/events/repeat-scope";
+import { getEventAction } from "@/app/(app)/event-actions";
 import type { CalendarEvent } from "@/modules/events/events";
+import type { RepeatScope } from "@/modules/events/recurrence";
 import {
   type EventFormValues,
   type NewEventClick,
@@ -74,7 +77,10 @@ function displayFor(event: CalendarEvent, filters: CalendarFilters) {
 type Panel =
   | { kind: "create"; values: EventFormValues }
   | { kind: "details"; event: CalendarEvent }
-  | { kind: "edit"; event: CalendarEvent }
+  /** An occurrence of a series: which occurrences to edit, before the form opens. */
+  | { kind: "editScope"; event: CalendarEvent }
+  /** For "all", event is the series itself rather than the occurrence clicked. */
+  | { kind: "edit"; event: CalendarEvent; scope?: RepeatScope }
   | { kind: "delete"; event: CalendarEvent };
 
 export function Calendar({
@@ -174,6 +180,22 @@ export function Calendar({
   // it changed since, saving or deleting is refused and the calendar reloads it.
   function onEventClick(info: EventClickInfo) {
     setPanel({ kind: "details", event: info.event.extendedProps.event as CalendarEvent });
+  }
+
+  // Editing all occurrences starts from the series itself, as now stored: the occurrence
+  // clicked may have its own changes and its own date.
+  async function chooseEditScope(event: CalendarEvent, scope: RepeatScope) {
+    if (scope !== "all") {
+      setPanel({ kind: "edit", event, scope });
+      return null;
+    }
+    const result = await getEventAction(event.id);
+    if (!result.ok) {
+      refetchEvents();
+      return result.message;
+    }
+    setPanel({ kind: "edit", event: result.event, scope });
+    return null;
   }
 
   const colorOf = (event: CalendarEvent) => ownerColors[event.owner] ?? appConfig.sharedColor;
@@ -309,15 +331,24 @@ export function Calendar({
         <EventDetailsDialog
           event={panel.event}
           color={colorOf(panel.event)}
-          onEdit={() => setPanel({ kind: "edit", event: panel.event })}
+          onEdit={() =>
+            setPanel({ kind: panel.event.recurrence ? "editScope" : "edit", event: panel.event })
+          }
           onDelete={() => setPanel({ kind: "delete", event: panel.event })}
           onClose={closePanel}
+        />
+      )}
+      {panel?.kind === "editScope" && (
+        <EditScopeDialog
+          onChoose={(scope) => chooseEditScope(panel.event, scope)}
+          onCancel={() => setPanel({ kind: "details", event: panel.event })}
         />
       )}
       {panel?.kind === "edit" && (
         <EventFormDialog
           initialValues={eventFormValues(panel.event, appConfig.timeZone)}
           editing={{ id: panel.event.id, version: panel.event.version }}
+          scope={panel.scope}
           onClose={closePanel}
           onSaved={onEventSaved}
           onStale={refetchEvents}

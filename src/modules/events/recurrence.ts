@@ -20,6 +20,10 @@ export type Frequency = (typeof FREQUENCIES)[number];
 export const WEEKDAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
 export type Weekday = (typeof WEEKDAYS)[number];
 
+/** What a change to an occurrence applies to: it alone, it and the ones after it, or all. */
+export const REPEAT_SCOPES = ["this", "following", "all"] as const;
+export type RepeatScope = (typeof REPEAT_SCOPES)[number];
+
 export type RepeatEnd =
   | { kind: "never" }
   /** The last date an occurrence may start on, inclusive. */

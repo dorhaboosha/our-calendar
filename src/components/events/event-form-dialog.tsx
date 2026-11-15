@@ -31,7 +31,7 @@ import {
   withStart,
   withWeekday,
 } from "@/modules/events/form";
-import { FREQUENCIES, WEEKDAYS } from "@/modules/events/recurrence";
+import { FREQUENCIES, type RepeatScope, WEEKDAYS } from "@/modules/events/recurrence";
 import {
   DESCRIPTION_MAX,
   LOCATION_MAX,
@@ -46,6 +46,11 @@ type Props = {
   initialValues: EventFormValues;
   /** The event being edited, at the version that was loaded; absent for a new event. */
   editing?: { id: string; version: number };
+  /**
+   * Editing a series: which occurrences. "this" has no repeat choices of its own, and
+   * keeps the series' owner. For "all", initialValues are the series' own.
+   */
+  scope?: RepeatScope;
   onClose: () => void;
   /** Called with the saved event after a successful save, before the dialog closes. */
   onSaved: (event: CalendarEvent) => void;
@@ -60,7 +65,14 @@ type Props = {
  * The form for a new event, or for editing one. Rendered only while open, so every
  * opening starts from fresh values. Full screen on phones, a dialog on larger screens.
  */
-export function EventFormDialog({ initialValues, editing, onClose, onSaved, onStale }: Props) {
+export function EventFormDialog({
+  initialValues,
+  editing,
+  scope,
+  onClose,
+  onSaved,
+  onStale,
+}: Props) {
   const t = useTranslations();
   const [values, setValues] = useState(initialValues);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<EventField, string>>>({});
@@ -106,6 +118,16 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
 
   const { repeat } = values;
   const isWeekly = repeat.frequency === "weekly" || repeat.frequency === "biweekly";
+  const oneOccurrence = scope === "this";
+  const title = !editing
+    ? t("eventForm.createTitle")
+    : scope === "this"
+      ? t("eventForm.editThisTitle")
+      : scope === "following"
+        ? t("eventForm.editFollowingTitle")
+        : scope === "all"
+          ? t("eventForm.editAllTitle")
+          : t("eventForm.editTitle");
 
   const field = (name: EventField) => ({ invalid: Boolean(fieldErrors[name]) });
   const error = (name: EventField) =>
@@ -124,9 +146,7 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
         <Dialog.Positioner>
           <Dialog.Content css={dialogFromMdUp}>
             <Dialog.Header>
-              <Dialog.Title>
-                {editing ? t("eventForm.editTitle") : t("eventForm.createTitle")}
-              </Dialog.Title>
+              <Dialog.Title>{title}</Dialog.Title>
             </Dialog.Header>
             <Dialog.Body>
               <form id="event-form" onSubmit={submit} noValidate>
@@ -150,7 +170,7 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
                   </Field.Root>
 
                   <Grid templateColumns={{ base: "1fr", sm: "1fr 1fr" }} gap="4">
-                    <Field.Root {...field("owner")}>
+                    <Field.Root {...field("owner")} disabled={oneOccurrence}>
                       <Field.Label>{t("eventForm.owner")}</Field.Label>
                       <NativeSelect.Root>
                         <NativeSelect.Field
@@ -165,6 +185,9 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
                         </NativeSelect.Field>
                         <NativeSelect.Indicator />
                       </NativeSelect.Root>
+                      {oneOccurrence && (
+                        <Field.HelperText>{t("eventForm.ownerOfSeries")}</Field.HelperText>
+                      )}
                       {error("owner")}
                     </Field.Root>
 
@@ -255,29 +278,34 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
                     )}
                   </Grid>
 
-                  <Field.Root {...field("repeatFrequency")}>
-                    <Field.Label>{t("eventForm.repeat.label")}</Field.Label>
-                    <NativeSelect.Root>
-                      <NativeSelect.Field
-                        value={repeat.frequency}
-                        onChange={(e) =>
-                          setValues((current) =>
-                            withFrequency(current, e.target.value as RepeatFormValues["frequency"]),
-                          )
-                        }
-                      >
-                        {(["none", ...FREQUENCIES] as const).map((frequency) => (
-                          <option key={frequency} value={frequency}>
-                            {t(`eventForm.repeat.${frequency}`)}
-                          </option>
-                        ))}
-                      </NativeSelect.Field>
-                      <NativeSelect.Indicator />
-                    </NativeSelect.Root>
-                    {error("repeatFrequency")}
-                  </Field.Root>
+                  {!oneOccurrence && (
+                    <Field.Root {...field("repeatFrequency")}>
+                      <Field.Label>{t("eventForm.repeat.label")}</Field.Label>
+                      <NativeSelect.Root>
+                        <NativeSelect.Field
+                          value={repeat.frequency}
+                          onChange={(e) =>
+                            setValues((current) =>
+                              withFrequency(
+                                current,
+                                e.target.value as RepeatFormValues["frequency"],
+                              ),
+                            )
+                          }
+                        >
+                          {(["none", ...FREQUENCIES] as const).map((frequency) => (
+                            <option key={frequency} value={frequency}>
+                              {t(`eventForm.repeat.${frequency}`)}
+                            </option>
+                          ))}
+                        </NativeSelect.Field>
+                        <NativeSelect.Indicator />
+                      </NativeSelect.Root>
+                      {error("repeatFrequency")}
+                    </Field.Root>
+                  )}
 
-                  {isWeekly && (
+                  {!oneOccurrence && isWeekly && (
                     <Fieldset.Root invalid={Boolean(fieldErrors.repeatWeekdays)}>
                       <Fieldset.Legend>{t("eventForm.repeat.weekdays")}</Fieldset.Legend>
                       <Flex wrap="wrap" columnGap="4" rowGap="2">
@@ -303,7 +331,7 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
                     </Fieldset.Root>
                   )}
 
-                  {repeat.frequency !== "none" && (
+                  {!oneOccurrence && repeat.frequency !== "none" && (
                     <Grid templateColumns={repeat.end === "never" ? "1fr" : "1fr 1fr"} gap="4">
                       <Field.Root>
                         <Field.Label>{t("eventForm.repeat.end")}</Field.Label>

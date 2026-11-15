@@ -122,8 +122,12 @@
     "newEvent": "אירוע חדש",
     "createTitle": "אירוע חדש",
     "editTitle": "עריכת אירוע",
+    "editThisTitle": "עריכת המופע",
+    "editFollowingTitle": "עריכת המופע הזה וכל הבאים",
+    "editAllTitle": "עריכת כל המופעים",
     "title": "כותרת",
     "owner": "שייך ל",
+    "ownerOfSeries": "השיוך משותף לכל המופעים. כדי לשנות אותו, ערכו את כל המופעים.",
     "category": "קטגוריה",
     "allDay": "יום שלם",
     "startDate": "תאריך התחלה",
@@ -156,6 +160,15 @@
   },
   "eventDetails": {
     "allDay": "יום שלם",
+    "repeat": {
+      "daily": "חוזר כל יום",
+      "weekly": "חוזר כל שבוע {dayCount, plural, one {ביום} other {בימים}} {days}",
+      "biweekly": "חוזר כל שבועיים {dayCount, plural, one {ביום} other {בימים}} {days}",
+      "monthly": "חוזר כל חודש ב-{day} לחודש",
+      "yearly": "חוזר כל שנה ב-{date}",
+      "until": "עד {date}",
+      "count": "{count, plural, one {פעם אחת} two {פעמיים} other {# פעמים}} בסך הכול"
+    },
     "owner": "שייך ל",
     "category": "קטגוריה",
     "location": "מיקום",
@@ -168,11 +181,23 @@
   },
   "deleteEvent": {
     "title": "למחוק את האירוע?",
+    "seriesTitle": "למחוק אירוע חוזר?",
     "body": "האירוע \"{title}\" יימחק מהיומן של שניכם.",
     "confirm": "מחיקה",
     "deleting": "מוחק…",
     "cancel": "ביטול",
     "failed": "המחיקה נכשלה. בדקו את החיבור לאינטרנט ונסו שוב."
+  },
+  "repeatScope": {
+    "label": "על אילו מופעים",
+    "editTitle": "עריכת אירוע חוזר",
+    "this": "המופע הזה",
+    "following": "המופע הזה וכל הבאים",
+    "all": "כל המופעים",
+    "continue": "המשך",
+    "loading": "טוען…",
+    "cancel": "ביטול",
+    "loadFailed": "טעינת האירוע נכשלה. בדקו את החיבור לאינטרנט ונסו שוב."
   },
   "categories": {
     "work": "עבודה",

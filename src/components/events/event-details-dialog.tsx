@@ -13,8 +13,9 @@ import {
 } from "@chakra-ui/react";
 import { useTranslations } from "next-intl";
 import { appConfig, getUserConfig } from "@/config/app.config";
-import { describeWhen } from "@/modules/events/display";
+import { describeRepeat, describeWhen, summarizeRepeat } from "@/modules/events/display";
 import type { CalendarEvent } from "@/modules/events/events";
+import { isLocalDate, toLocal } from "@/modules/events/time";
 import { SHARED_OWNER } from "@/modules/events/validation";
 import { dialogFromMdUp } from "./dialog-styles";
 
@@ -33,6 +34,20 @@ export function EventDetailsDialog({ event, color, onEdit, onDelete, onClose }: 
   const when = describeWhen(event, appConfig.timeZone, appConfig.intlLocale);
   const userName = (key: string) => getUserConfig(key)?.displayName ?? key;
   const owner = event.owner === SHARED_OWNER ? t("common.shared") : userName(event.owner);
+  const repeat = event.recurrence && repeatText(event.recurrence);
+
+  // In the occurrence's place in the series (it may have been moved since).
+  function repeatText({ rrule, originalStart }: NonNullable<CalendarEvent["recurrence"]>) {
+    const seriesIsAllDay = isLocalDate(originalStart);
+    const startDate = seriesIsAllDay
+      ? originalStart
+      : toLocal(new Date(originalStart), appConfig.timeZone).date;
+    return describeRepeat(
+      summarizeRepeat(rrule, startDate, seriesIsAllDay, appConfig.timeZone, appConfig.intlLocale),
+      (key, values) => t(key, values),
+      appConfig.intlLocale,
+    );
+  }
 
   return (
     <Dialog.Root
@@ -64,6 +79,7 @@ export function EventDetailsDialog({ event, color, onEdit, onDelete, onClose }: 
                     </Text>
                   )}
                   {event.isAllDay && <Text color="fg.muted">{t("eventDetails.allDay")}</Text>}
+                  {repeat && <Text color="fg.muted">{repeat}</Text>}
                 </Stack>
 
                 <DataList.Root orientation="horizontal" gap="3">

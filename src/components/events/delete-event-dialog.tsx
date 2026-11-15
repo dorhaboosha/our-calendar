@@ -5,6 +5,8 @@ import { useTranslations } from "next-intl";
 import { useRef, useState } from "react";
 import { deleteEventAction } from "@/app/(app)/event-actions";
 import type { CalendarEvent } from "@/modules/events/events";
+import type { RepeatScope } from "@/modules/events/recurrence";
+import { RepeatScopeChoice } from "./repeat-scope";
 
 type Props = {
   event: CalendarEvent;
@@ -15,12 +17,17 @@ type Props = {
   onStale: () => void;
 };
 
-/** Asks before deleting. Focus starts on "cancel", so Enter alone never deletes. */
+/**
+ * Asks before deleting; for an occurrence of a series, also which occurrences. Focus
+ * starts on "cancel", so Enter alone never deletes.
+ */
 export function DeleteEventDialog({ event, onCancel, onDeleted, onStale }: Props) {
   const t = useTranslations();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Sent to the server with the deletion in the next step.
+  const [scope, setScope] = useState<RepeatScope>("this");
 
   async function confirm() {
     setPending(true);
@@ -54,10 +61,13 @@ export function DeleteEventDialog({ event, onCancel, onDeleted, onStale }: Props
         <Dialog.Positioner>
           <Dialog.Content>
             <Dialog.Header>
-              <Dialog.Title>{t("deleteEvent.title")}</Dialog.Title>
+              <Dialog.Title>
+                {event.recurrence ? t("deleteEvent.seriesTitle") : t("deleteEvent.title")}
+              </Dialog.Title>
             </Dialog.Header>
             <Dialog.Body display="flex" flexDirection="column" gap="4">
               <Text overflowWrap="anywhere">{t("deleteEvent.body", { title: event.title })}</Text>
+              {event.recurrence && <RepeatScopeChoice value={scope} onChange={setScope} />}
               {error && (
                 <Alert.Root status="error">
                   <Alert.Indicator />

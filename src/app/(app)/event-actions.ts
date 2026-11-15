@@ -8,6 +8,7 @@ import {
   type EventFailure,
   createEvent,
   deleteEvent,
+  getEvent,
   updateEvent,
 } from "@/modules/events/events";
 import { type EventField, validateEvent } from "@/modules/events/validation";
@@ -23,6 +24,15 @@ export type EventActionResult =
   | { ok: false; message: string };
 
 export type DeleteEventResult = { ok: true } | { ok: false; message: string };
+
+/** An event as stored; for a series, the series itself (its first occurrence). */
+export async function getEventAction(
+  id: unknown,
+): Promise<{ ok: true; event: CalendarEvent } | { ok: false; message: string }> {
+  await requireUser();
+  const event = isId(id) ? await getEvent(id) : null;
+  return event ? { ok: true, event } : failure({ ok: false, reason: "notFound" });
+}
 
 export async function createEventAction(input: unknown): Promise<EventActionResult> {
   const user = await requireUser();
