@@ -7,6 +7,8 @@ import {
   CloseButton,
   Dialog,
   Field,
+  Fieldset,
+  Flex,
   Grid,
   Input,
   NativeSelect,
@@ -19,10 +21,21 @@ import { type FormEvent, useState } from "react";
 import { createEventAction, updateEventAction } from "@/app/(app)/event-actions";
 import { appConfig } from "@/config/app.config";
 import type { CalendarEvent } from "@/modules/events/events";
-import { type EventFormValues, toEventInput, withAllDay, withStart } from "@/modules/events/form";
+import {
+  type EventFormValues,
+  type RepeatFormValues,
+  toEventInput,
+  withAllDay,
+  withFrequency,
+  withRepeatEnd,
+  withStart,
+  withWeekday,
+} from "@/modules/events/form";
+import { FREQUENCIES, WEEKDAYS } from "@/modules/events/recurrence";
 import {
   DESCRIPTION_MAX,
   LOCATION_MAX,
+  REPEAT_COUNT_MAX,
   SHARED_OWNER,
   TITLE_MAX,
 } from "@/modules/events/validation";
@@ -90,6 +103,9 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
     ...appConfig.users.map((user) => ({ value: user.key, label: user.displayName })),
     { value: SHARED_OWNER, label: t("common.shared") },
   ];
+
+  const { repeat } = values;
+  const isWeekly = repeat.frequency === "weekly" || repeat.frequency === "biweekly";
 
   const field = (name: EventField) => ({ invalid: Boolean(fieldErrors[name]) });
   const error = (name: EventField) =>
@@ -238,6 +254,114 @@ export function EventFormDialog({ initialValues, editing, onClose, onSaved, onSt
                       </Field.Root>
                     )}
                   </Grid>
+
+                  <Field.Root {...field("repeatFrequency")}>
+                    <Field.Label>{t("eventForm.repeat.label")}</Field.Label>
+                    <NativeSelect.Root>
+                      <NativeSelect.Field
+                        value={repeat.frequency}
+                        onChange={(e) =>
+                          setValues((current) =>
+                            withFrequency(current, e.target.value as RepeatFormValues["frequency"]),
+                          )
+                        }
+                      >
+                        {(["none", ...FREQUENCIES] as const).map((frequency) => (
+                          <option key={frequency} value={frequency}>
+                            {t(`eventForm.repeat.${frequency}`)}
+                          </option>
+                        ))}
+                      </NativeSelect.Field>
+                      <NativeSelect.Indicator />
+                    </NativeSelect.Root>
+                    {error("repeatFrequency")}
+                  </Field.Root>
+
+                  {isWeekly && (
+                    <Fieldset.Root invalid={Boolean(fieldErrors.repeatWeekdays)}>
+                      <Fieldset.Legend>{t("eventForm.repeat.weekdays")}</Fieldset.Legend>
+                      <Flex wrap="wrap" columnGap="4" rowGap="2">
+                        {WEEKDAYS.map((day) => (
+                          <Checkbox.Root
+                            key={day}
+                            checked={repeat.weekdays.includes(day)}
+                            onCheckedChange={(details) =>
+                              setValues((current) =>
+                                withWeekday(current, day, details.checked === true),
+                              )
+                            }
+                          >
+                            <Checkbox.HiddenInput />
+                            <Checkbox.Control />
+                            <Checkbox.Label>{t(`weekdays.${day}`)}</Checkbox.Label>
+                          </Checkbox.Root>
+                        ))}
+                      </Flex>
+                      {fieldErrors.repeatWeekdays && (
+                        <Fieldset.ErrorText>{fieldErrors.repeatWeekdays}</Fieldset.ErrorText>
+                      )}
+                    </Fieldset.Root>
+                  )}
+
+                  {repeat.frequency !== "none" && (
+                    <Grid templateColumns={repeat.end === "never" ? "1fr" : "1fr 1fr"} gap="4">
+                      <Field.Root>
+                        <Field.Label>{t("eventForm.repeat.end")}</Field.Label>
+                        <NativeSelect.Root>
+                          <NativeSelect.Field
+                            value={repeat.end}
+                            onChange={(e) =>
+                              setValues((current) =>
+                                withRepeatEnd(current, e.target.value as RepeatFormValues["end"]),
+                              )
+                            }
+                          >
+                            {(["never", "until", "count"] as const).map((end) => (
+                              <option key={end} value={end}>
+                                {t(`eventForm.repeat.${end}`)}
+                              </option>
+                            ))}
+                          </NativeSelect.Field>
+                          <NativeSelect.Indicator />
+                        </NativeSelect.Root>
+                      </Field.Root>
+                      {repeat.end === "until" && (
+                        <Field.Root required {...field("repeatUntil")}>
+                          <Field.Label>{t("eventForm.repeat.untilDate")}</Field.Label>
+                          <Input
+                            type="date"
+                            value={repeat.until}
+                            onChange={(e) =>
+                              setValues((current) => ({
+                                ...current,
+                                repeat: { ...current.repeat, until: e.target.value },
+                              }))
+                            }
+                          />
+                          {error("repeatUntil")}
+                        </Field.Root>
+                      )}
+                      {repeat.end === "count" && (
+                        <Field.Root required {...field("repeatCount")}>
+                          <Field.Label>{t("eventForm.repeat.countLabel")}</Field.Label>
+                          <Input
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            max={REPEAT_COUNT_MAX}
+                            value={repeat.count}
+                            onChange={(e) =>
+                              setValues((current) => ({
+                                ...current,
+                                repeat: { ...current.repeat, count: e.target.value },
+                              }))
+                            }
+                          />
+                          {error("repeatCount")}
+                        </Field.Root>
+                      )}
+                    </Grid>
+                  )}
 
                   <Field.Root {...field("location")}>
                     <Field.Label>

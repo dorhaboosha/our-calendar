@@ -1,9 +1,11 @@
 // The event form's behavior, kept out of the component so it can be tested: default
-// values for a new event, keeping the length when the start moves, and the "all day"
-// checkbox. All values are local (dates "YYYY-MM-DD", times "HH:mm").
+// values for a new event, keeping the length when the start moves, the "all day"
+// checkbox and the repeat choices. All values are local (dates "YYYY-MM-DD", times
+// "HH:mm").
 
 import { Temporal } from "temporal-polyfill";
 import type { CalendarEvent } from "./events";
+import { type Frequency, type RepeatEnd, type Weekday, fromRRule, weekdayOf } from "./recurrence";
 import {
   type LocalDate,
   type LocalTime,
@@ -26,7 +28,32 @@ export type EventFormValues = {
   endTime: LocalTime;
   location: string;
   description: string;
+  repeat: RepeatFormValues;
 };
+
+export type RepeatFormValues = {
+  frequency: "none" | Frequency;
+  /** Weekly and every two weeks only. */
+  weekdays: Weekday[];
+  end: RepeatEnd["kind"];
+  /** The last date, for end "until"; "" until one is chosen. */
+  until: LocalDate;
+  /** How many times, for end "count", as typed. */
+  count: string;
+};
+
+export const DEFAULT_REPEAT_COUNT = "10";
+
+const NO_REPEAT: RepeatFormValues = {
+  frequency: "none",
+  weekdays: [],
+  end: "never",
+  until: "",
+  count: DEFAULT_REPEAT_COUNT,
+};
+
+const isWeekly = (frequency: RepeatFormValues["frequency"]) =>
+  frequency === "weekly" || frequency === "biweekly";
 
 export const DEFAULT_DURATION_MINUTES = 60;
 /** Times used when a day is chosen without a time (month view) or "all day" is unticked. */
@@ -98,6 +125,7 @@ export function newEventValues(options: {
     endTime: end.time,
     location: "",
     description: "",
+    repeat: NO_REPEAT,
   };
 }
 
@@ -110,6 +138,7 @@ export function eventFormValues(event: CalendarEvent, timeZone: string): EventFo
     isAllDay: event.isAllDay,
     location: event.location ?? "",
     description: event.description ?? "",
+    repeat: repeatFormValues(event, timeZone),
   };
   if (event.isAllDay) {
     // The form shows the last day itself; the times are what unticking "all day" would give.
@@ -133,6 +162,18 @@ export function eventFormValues(event: CalendarEvent, timeZone: string): EventFo
   };
 }
 
+function repeatFormValues(event: CalendarEvent, timeZone: string): RepeatFormValues {
+  if (!event.recurrence) return NO_REPEAT;
+  const { frequency, weekdays, end } = fromRRule(event.recurrence.rrule, event.isAllDay, timeZone);
+  return {
+    frequency,
+    weekdays,
+    end: end.kind,
+    until: end.kind === "until" ? end.lastDate : "",
+    count: end.kind === "count" ? String(end.count) : DEFAULT_REPEAT_COUNT,
+  };
+}
+
 /**
  * New start date or time. The end moves with it, keeping the event's length (like
  * Google Calendar). If the current end isn't valid or isn't after the start, the end
@@ -146,6 +187,11 @@ export function withStart(
   const next = { ...values, startDate, startTime };
   if (!isLocalDate(startDate) || !isLocalDate(values.startDate) || !isLocalDate(values.endDate)) {
     return next; // Still typing: leave the end alone until the dates are real.
+  }
+  // A weekly series on the start's day alone (the default) follows the start to its new day.
+  const { weekdays } = values.repeat;
+  if (weekdays.length === 1 && weekdays[0] === weekdayOf(values.startDate)) {
+    next.repeat = { ...values.repeat, weekdays: [weekdayOf(startDate)] };
   }
 
   if (values.isAllDay) {
@@ -198,8 +244,38 @@ export function withAllDay(values: EventFormValues, isAllDay: boolean): EventFor
   };
 }
 
+/** A new frequency. Weekly starts with the start's day of the week chosen. */
+export function withFrequency(
+  values: EventFormValues,
+  frequency: RepeatFormValues["frequency"],
+): EventFormValues {
+  const weekdays =
+    isWeekly(frequency) && values.repeat.weekdays.length === 0 && isLocalDate(values.startDate)
+      ? [weekdayOf(values.startDate)]
+      : values.repeat.weekdays;
+  return { ...values, repeat: { ...values.repeat, frequency, weekdays } };
+}
+
+/** Ticks or unticks a day of the week. */
+export function withWeekday(values: EventFormValues, day: Weekday, on: boolean): EventFormValues {
+  const weekdays = on
+    ? [...new Set([...values.repeat.weekdays, day])]
+    : values.repeat.weekdays.filter((chosen) => chosen !== day);
+  return { ...values, repeat: { ...values.repeat, weekdays } };
+}
+
+/** A new way to end. "Until a date" starts with a date a month after the start. */
+export function withRepeatEnd(values: EventFormValues, end: RepeatEnd["kind"]): EventFormValues {
+  const until =
+    end === "until" && !values.repeat.until && isLocalDate(values.startDate)
+      ? Temporal.PlainDate.from(values.startDate).add({ months: 1 }).toString()
+      : values.repeat.until;
+  return { ...values, repeat: { ...values.repeat, end, until } };
+}
+
 /** What the server action receives; times are left out of an all-day event. */
 export function toEventInput(values: EventFormValues): EventInput {
+  const { repeat } = values;
   return {
     title: values.title,
     category: values.category,
@@ -210,5 +286,14 @@ export function toEventInput(values: EventFormValues): EventInput {
     ...(values.isAllDay ? {} : { startTime: values.startTime, endTime: values.endTime }),
     location: values.location,
     description: values.description,
+    ...(repeat.frequency !== "none" && {
+      repeat: {
+        frequency: repeat.frequency,
+        ...(isWeekly(repeat.frequency) && { weekdays: repeat.weekdays }),
+        end: repeat.end,
+        ...(repeat.end === "until" && { until: repeat.until }),
+        ...(repeat.end === "count" && { count: repeat.count }),
+      },
+    }),
   };
 }

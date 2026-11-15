@@ -5,6 +5,7 @@ import {
   DESCRIPTION_MAX,
   EVENT_ERROR_CODES,
   type EventInput,
+  REPEAT_COUNT_MAX,
   TITLE_MAX,
   validateEvent,
 } from "./validation";
@@ -196,6 +197,99 @@ describe("validateEvent: fields", () => {
     expect(errorsOf(null)).toBeTruthy();
     expect(errorsOf({ ...timed, isAllDay: "yes" })).toEqual({ startDate: "dateInvalid" });
     expect(errorsOf({ ...timed, title: 42 })).toEqual({ title: "titleRequired" });
+  });
+});
+
+describe("validateEvent: repeating events", () => {
+  // 5 November 2026 is a Thursday.
+  const weekly = (more: Partial<NonNullable<EventInput["repeat"]>> = {}): EventInput => ({
+    ...timed,
+    repeat: { frequency: "weekly", weekdays: ["TH"], end: "never", ...more },
+  });
+
+  it("an event without repeat choices doesn't repeat", () => {
+    expect(draftOf(timed).rrule).toBeNull();
+  });
+
+  it("turns the choices into a rule", () => {
+    expect(draftOf(weekly({ weekdays: ["TH", "SU"] })).rrule).toBe(
+      "FREQ=WEEKLY;BYDAY=SU,TH;WKST=SU",
+    );
+    expect(draftOf(weekly({ end: "count", count: " 5 " })).rrule).toBe(
+      "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=5",
+    );
+    expect(
+      draftOf({ ...allDay, repeat: { frequency: "yearly", end: "until", until: "2030-11-07" } })
+        .rrule,
+    ).toBe("FREQ=YEARLY;UNTIL=20301107");
+    // Days sent with a frequency that has none are ignored.
+    expect(
+      draftOf({ ...timed, repeat: { frequency: "daily", weekdays: ["MO"], end: "never" } }).rrule,
+    ).toBe("FREQ=DAILY");
+  });
+
+  it("requires the start's day among the days of a weekly series", () => {
+    expect(errorsOf(weekly({ weekdays: ["SU", "MO"] }))).toEqual({
+      repeatWeekdays: "startWeekdayNotChosen",
+    });
+    expect(errorsOf(weekly({ frequency: "biweekly", weekdays: [] }))).toEqual({
+      repeatWeekdays: "startWeekdayNotChosen",
+    });
+  });
+
+  it("checks the last date and the number of times", () => {
+    expect(errorsOf(weekly({ end: "until", until: "2026-11-04" }))).toEqual({
+      repeatUntil: "repeatUntilBeforeStart",
+    });
+    expect(errorsOf(weekly({ end: "until" }))).toEqual({ repeatUntil: "dateInvalid" });
+    // The start date itself is a valid last date: a single occurrence.
+    expect(draftOf(weekly({ end: "until", until: "2026-11-05" })).rrule).toBe(
+      "FREQ=WEEKLY;BYDAY=TH;WKST=SU;UNTIL=20261105T215959Z",
+    );
+    for (const count of ["0", "-1", "2.5", "ten", "", String(REPEAT_COUNT_MAX + 1)]) {
+      expect(errorsOf(weekly({ end: "count", count })), count).toEqual({
+        repeatCount: "repeatCountInvalid",
+      });
+    }
+    expect(draftOf(weekly({ end: "count", count: String(REPEAT_COUNT_MAX) })).rrule).toContain(
+      `COUNT=${REPEAT_COUNT_MAX}`,
+    );
+  });
+
+  it("refuses an event longer than the time between its occurrences", () => {
+    const twoDays = { ...timed, endDate: "2026-11-06", endTime: "12:00" };
+    expect(errorsOf({ ...twoDays, repeat: { frequency: "daily", end: "never" } })).toEqual({
+      repeatFrequency: "repeatTooOften",
+    });
+    expect(draftOf({ ...twoDays, repeat: { frequency: "monthly", end: "never" } }).rrule).toBe(
+      "FREQ=MONTHLY",
+    );
+    // A one-day all-day event every day is fine; two days every day is not.
+    const oneDay = { ...allDay, endDate: "2026-11-07" };
+    expect(draftOf({ ...oneDay, repeat: { frequency: "daily", end: "never" } }).rrule).toBe(
+      "FREQ=DAILY",
+    );
+    expect(errorsOf({ ...allDay, repeat: { frequency: "daily", end: "never" } })).toEqual({
+      repeatFrequency: "repeatTooOften",
+    });
+  });
+
+  it("reports time and repeat errors together", () => {
+    expect(errorsOf({ ...weekly({ weekdays: ["MO"] }), endTime: "09:00" })).toEqual({
+      endTime: "endNotAfterStart",
+      repeatWeekdays: "startWeekdayNotChosen",
+    });
+  });
+
+  it("rejects repeat input of the wrong shape", () => {
+    expect(errorsOf({ ...timed, repeat: { frequency: "hourly", end: "never" } })).toEqual({
+      repeatFrequency: "repeatInvalid",
+    });
+    expect(errorsOf(weekly({ weekdays: ["XX"] }))).toEqual({ repeatWeekdays: "repeatInvalid" });
+    expect(errorsOf({ ...timed, repeat: { frequency: "daily", end: "sometime" } })).toEqual({
+      repeatFrequency: "repeatInvalid",
+    });
+    expect(errorsOf({ ...timed, repeat: "weekly" })).toEqual({ repeatFrequency: "repeatInvalid" });
   });
 });
 

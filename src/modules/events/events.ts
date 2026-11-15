@@ -277,6 +277,7 @@ async function columnsFor(
       ownerUserId,
       isAllDay: draft.time.kind === "allDay",
       timezone: draft.timezone,
+      rrule: draft.rrule,
       ...time,
     },
   };

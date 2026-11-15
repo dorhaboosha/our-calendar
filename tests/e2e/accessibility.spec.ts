@@ -98,6 +98,18 @@ test.describe("signed in", () => {
     await form.getByRole("button", { name: "שמירה" }).click();
     await expect(form.getByText("יש לכתוב כותרת.")).toBeVisible();
     expect(await violations(page), "form with errors").toEqual([]);
+
+    // Every repeat field showing, with errors: the days and the number of times.
+    await form.getByLabel("כותרת", { exact: true }).fill("רופא שיניים");
+    await form.getByLabel("חזרה", { exact: true }).selectOption("weekly");
+    await form.getByText("חמישי", { exact: true }).click();
+    await form.getByText("שישי", { exact: true }).click();
+    await form.getByLabel("סיום החזרה", { exact: true }).selectOption("count");
+    await form.getByLabel("מספר פעמים", { exact: true }).fill("0");
+    await form.getByRole("button", { name: "שמירה" }).click();
+    await expect(form.getByText("יש לכתוב מספר פעמים בין 1 ל-999.")).toBeVisible();
+    await expect(form.getByText("היום של תאריך ההתחלה צריך להיות אחד הימים שנבחרו.")).toBeVisible();
+    expect(await violations(page), "repeat fields with errors").toEqual([]);
   });
 
   test("settings", async ({ page }) => {

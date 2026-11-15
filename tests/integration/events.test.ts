@@ -99,6 +99,22 @@ describe("createEvent", () => {
     });
   });
 
+  it("creates a repeating event with its rule", async () => {
+    const event = await create({
+      title: "Pilates",
+      repeat: { frequency: "weekly", weekdays: ["TH"], end: "count", count: "3" },
+    });
+    expect(event.recurrence).toEqual({
+      rrule: "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=3",
+      originalStart: "2026-11-05T08:00:00.000Z",
+    });
+    expect(
+      (await eventsBetween(["2026-11-01", "00:00"], ["2026-12-01", "00:00"])).map(
+        (occurrence) => occurrence.start,
+      ),
+    ).toEqual(["2026-11-05T08:00:00.000Z", "2026-11-12T08:00:00.000Z", "2026-11-19T08:00:00.000Z"]);
+  });
+
   it("lets one user create an event owned by the other", async () => {
     const event = await create({ owner: "maayan" }, dorId);
     expect(event).toMatchObject({ owner: "maayan", createdBy: "dor" });

@@ -131,6 +131,40 @@ test("shows the server's Hebrew errors and keeps the form open", async ({ page }
   expect(await savedEvents()).toEqual([]);
 });
 
+test("creates a weekly series that appears on each of its days", async ({ page }) => {
+  await page.goto("/?view=month");
+  await openNewEvent(page);
+  await field(page, "כותרת").fill("פילאטיס");
+  await expect(dialog(page).getByText("בימים")).toHaveCount(0);
+  await field(page, "חזרה").selectOption("weekly");
+  // Thursday, the start's day, is chosen to begin with.
+  await expect(field(page, "חמישי")).toBeChecked();
+  await dialog(page).getByText("ראשון", { exact: true }).click();
+  await field(page, "סיום החזרה").selectOption("count");
+  await field(page, "מספר פעמים").fill("4");
+  await save(page);
+
+  await expect(dialog(page)).toBeHidden();
+  // Thursday 5, Sunday 8, Thursday 12 and Sunday 15 November.
+  await expect(calendar(page).getByText("פילאטיס", { exact: true })).toHaveCount(4);
+  const { rows } = await db.query('SELECT rrule FROM "event"');
+  expect(rows).toEqual([{ rrule: "FREQ=WEEKLY;BYDAY=SU,TH;WKST=SU;COUNT=4" }]);
+});
+
+test("a weekly series must include the start's day", async ({ page }) => {
+  await page.goto("/?view=month");
+  await openNewEvent(page);
+  await field(page, "כותרת").fill("פילאטיס");
+  await field(page, "חזרה").selectOption("biweekly");
+  await dialog(page).getByText("חמישי", { exact: true }).click();
+  await dialog(page).getByText("שני", { exact: true }).click();
+  await save(page);
+  await expect(
+    dialog(page).getByText("היום של תאריך ההתחלה צריך להיות אחד הימים שנבחרו."),
+  ).toBeVisible();
+  expect(await savedEvents()).toEqual([]);
+});
+
 test("cancel closes the form without saving", async ({ page }) => {
   await page.goto("/?view=month");
   await openNewEvent(page);
