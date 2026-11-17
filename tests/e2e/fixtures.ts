@@ -45,6 +45,8 @@ type TestEvent = {
   category?: string;
   location?: string;
   description?: string;
+  /** A repeating event's RRULE value, as stored. */
+  rrule?: string;
 } & (
   | { start: string; end: string } // ISO instants: a timed event
   | { startDate: string; endDate: string } // "YYYY-MM-DD", end exclusive: all day
@@ -67,8 +69,8 @@ export async function insertEvent(event: TestEvent): Promise<string> {
   await db.query(
     `INSERT INTO "event" (id, title, "ownerType", "ownerUserId", category, "isAllDay",
        "startAt", "endAt", "startDate", "endDate", "createdByUserId", "updatedByUserId",
-       location, description, "updatedAt")
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, now())`,
+       location, description, rrule, "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $12, $13, $14, now())`,
     [
       id,
       event.title,
@@ -83,6 +85,7 @@ export async function insertEvent(event: TestEvent): Promise<string> {
       userId,
       event.location ?? null,
       event.description ?? null,
+      event.rrule ?? null,
     ],
   );
   return id;

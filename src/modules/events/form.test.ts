@@ -6,9 +6,13 @@ import {
   eventFormValues,
   newEventValues,
   nextFullHour,
+  timingChanged,
   toEventInput,
   withAllDay,
+  withFrequency,
+  withRepeatEnd,
   withStart,
+  withWeekday,
 } from "./form";
 import { validateEvent } from "./validation";
 
@@ -28,6 +32,7 @@ const timed: EventFormValues = {
   endTime: "11:30",
   location: "",
   description: "",
+  repeat: { frequency: "none", weekdays: [], end: "never", until: "", count: "10" },
 };
 
 describe("nextFullHour / addMinutes", () => {
@@ -64,6 +69,7 @@ describe("newEventValues", () => {
       endTime: "11:00",
       location: "",
       description: "",
+      repeat: timed.repeat,
     });
   });
 
@@ -121,6 +127,8 @@ describe("newEventValues", () => {
 describe("eventFormValues", () => {
   const saved: CalendarEvent = {
     id: "1",
+    key: "1",
+    recurrence: null,
     title: "Dentist",
     description: null,
     location: "Herzl 1",
@@ -148,6 +156,59 @@ describe("eventFormValues", () => {
       endTime: "11:30",
       location: "Herzl 1",
       description: "",
+      repeat: timed.repeat,
+    });
+  });
+
+  it("an occurrence of a series counted in times: how many are left from it", () => {
+    const occurrence: CalendarEvent = {
+      ...saved,
+      recurrence: {
+        rrule: "FREQ=DAILY;COUNT=10",
+        originalStart: saved.start,
+        originalEnd: saved.end,
+        changedOccurrences: [],
+        remainingCount: 7,
+      },
+    };
+    expect(eventFormValues(occurrence, TZ).repeat).toMatchObject({ end: "count", count: "7" });
+  });
+
+  it("an occurrence of a series shows the series' choices", () => {
+    const occurrence: CalendarEvent = {
+      ...saved,
+      key: "1@2026-11-12T08:00:00.000Z",
+      recurrence: {
+        rrule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TH;WKST=SU;UNTIL=20261231T215959Z",
+        originalStart: "2026-11-12T08:00:00.000Z",
+        originalEnd: "2026-11-12T09:30:00.000Z",
+        changedOccurrences: [],
+        remainingCount: null,
+      },
+    };
+    expect(eventFormValues(occurrence, TZ).repeat).toEqual({
+      frequency: "biweekly",
+      weekdays: ["SU", "TH"],
+      end: "until",
+      until: "2026-12-31",
+      count: "10",
+    });
+  });
+
+  it("an occurrence of an all-day series changed to have times reads the series' last date", () => {
+    const occurrence: CalendarEvent = {
+      ...saved,
+      recurrence: {
+        rrule: "FREQ=YEARLY;UNTIL=20291104",
+        originalStart: "2027-11-05",
+        originalEnd: "2027-11-06",
+        changedOccurrences: ["2027-11-05"],
+        remainingCount: null,
+      },
+    };
+    expect(eventFormValues(occurrence, TZ).repeat).toMatchObject({
+      end: "until",
+      until: "2029-11-04",
     });
   });
 
@@ -257,5 +318,83 @@ describe("toEventInput", () => {
     const input = toEventInput(withAllDay(timed, true));
     expect(input).not.toHaveProperty("startTime");
     expect(input).not.toHaveProperty("endTime");
+  });
+});
+
+describe("repeat choices", () => {
+  it("a new event doesn't repeat", () => {
+    expect(newEventValues(base).repeat).toEqual({
+      frequency: "none",
+      weekdays: [],
+      end: "never",
+      until: "",
+      count: "10",
+    });
+  });
+
+  it("weekly starts with the start's day chosen, and keeps days already chosen", () => {
+    // 5 November 2026 is a Thursday.
+    const weekly = withFrequency(timed, "weekly");
+    expect(weekly.repeat.weekdays).toEqual(["TH"]);
+    const twoDays = withWeekday(weekly, "SU", true);
+    expect(withFrequency(twoDays, "biweekly").repeat.weekdays).toEqual(["TH", "SU"]);
+    expect(withWeekday(twoDays, "TH", false).repeat.weekdays).toEqual(["SU"]);
+  });
+
+  it("the start's day alone follows the start to another day", () => {
+    const weekly = withFrequency(timed, "weekly");
+    expect(withStart(weekly, "2026-11-08", "10:00").repeat.weekdays).toEqual(["SU"]);
+    // Days the user chose stay as they are.
+    const twoDays = withWeekday(weekly, "SU", true);
+    expect(withStart(twoDays, "2026-11-09", "10:00").repeat.weekdays).toEqual(["TH", "SU"]);
+  });
+
+  it("ending on a date starts a month after the start", () => {
+    const until = withRepeatEnd(withFrequency(timed, "daily"), "until");
+    expect(until.repeat).toMatchObject({ end: "until", until: "2026-12-05" });
+    // A date already chosen stays.
+    const chosen = { ...until, repeat: { ...until.repeat, until: "2027-01-01" } };
+    expect(withRepeatEnd(withRepeatEnd(chosen, "count"), "until").repeat.until).toBe("2027-01-01");
+  });
+
+  it("sends the server only what the choice needs, and the server accepts it", () => {
+    expect(toEventInput(timed)).not.toHaveProperty("repeat");
+    const weekly = withFrequency(timed, "weekly");
+    expect(toEventInput(weekly).repeat).toEqual({
+      frequency: "weekly",
+      weekdays: ["TH"],
+      end: "never",
+    });
+    const counted = withRepeatEnd(withFrequency(weekly, "monthly"), "count");
+    expect(toEventInput(counted).repeat).toEqual({
+      frequency: "monthly",
+      end: "count",
+      count: "10",
+    });
+    const result = validateEvent(toEventInput(counted));
+    expect(result.ok && result.draft.rrule).toBe("FREQ=MONTHLY;COUNT=10");
+  });
+});
+
+describe("timingChanged", () => {
+  const weekly = withFrequency(timed, "weekly");
+
+  it("is the times, the dates, all day, the frequency or the days", () => {
+    expect(timingChanged(weekly, { ...weekly, title: "Renamed", location: "Park" })).toBe(false);
+    expect(timingChanged(weekly, withStart(weekly, "2026-11-05", "11:00"))).toBe(true);
+    expect(timingChanged(weekly, { ...weekly, endTime: "12:00" })).toBe(true);
+    expect(timingChanged(weekly, withAllDay(weekly, true))).toBe(true);
+    expect(timingChanged(weekly, withFrequency(weekly, "biweekly"))).toBe(true);
+    expect(timingChanged(weekly, withWeekday(weekly, "SU", true))).toBe(true);
+  });
+
+  it("is not a new end, nor the same days picked in another order", () => {
+    expect(timingChanged(weekly, withRepeatEnd(weekly, "count"))).toBe(false);
+    const twoDays = withWeekday(weekly, "SU", true);
+    const otherOrder = {
+      ...twoDays,
+      repeat: { ...twoDays.repeat, weekdays: [...twoDays.repeat.weekdays].reverse() },
+    };
+    expect(timingChanged(twoDays, otherOrder)).toBe(false);
   });
 });

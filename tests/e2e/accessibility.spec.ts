@@ -98,6 +98,51 @@ test.describe("signed in", () => {
     await form.getByRole("button", { name: "שמירה" }).click();
     await expect(form.getByText("יש לכתוב כותרת.")).toBeVisible();
     expect(await violations(page), "form with errors").toEqual([]);
+
+    // Every repeat field showing, with errors: the days and the number of times.
+    await form.getByLabel("כותרת", { exact: true }).fill("רופא שיניים");
+    await form.getByLabel("חזרה", { exact: true }).selectOption("weekly");
+    await form.getByText("חמישי", { exact: true }).click();
+    await form.getByText("שישי", { exact: true }).click();
+    await form.getByLabel("סיום החזרה", { exact: true }).selectOption("count");
+    await form.getByLabel("מספר פעמים", { exact: true }).fill("0");
+    await form.getByRole("button", { name: "שמירה" }).click();
+    await expect(form.getByText("יש לכתוב מספר פעמים בין 1 ל-999.")).toBeVisible();
+    await expect(form.getByText("היום של תאריך ההתחלה צריך להיות אחד הימים שנבחרו.")).toBeVisible();
+    expect(await violations(page), "repeat fields with errors").toEqual([]);
+  });
+
+  test("the dialogs of a repeating event", async ({ page }) => {
+    await insertEvent({
+      title: "פילאטיס",
+      owner: "maayan",
+      start: "2026-11-05T18:00:00+02:00",
+      end: "2026-11-05T19:00:00+02:00",
+      rrule: "FREQ=WEEKLY;BYDAY=TH;WKST=SU",
+    });
+    await page.goto("/?view=month");
+    await page
+      .getByTestId("calendar")
+      .getByRole("button", { name: /פילאטיס/ })
+      .first()
+      .click();
+    const details = page.getByRole("dialog", { name: "פילאטיס" });
+    await expect(details.getByText("חוזר כל שבוע ביום חמישי")).toBeVisible();
+    expect(await violations(page), "details").toEqual([]);
+
+    await details.getByRole("button", { name: "מחיקה" }).click();
+    await expect(page.getByRole("alertdialog")).toBeVisible();
+    expect(await violations(page), "delete").toEqual([]);
+    await page.getByRole("alertdialog").getByRole("button", { name: "ביטול" }).click();
+
+    await details.getByRole("button", { name: "עריכה" }).click();
+    const scope = page.getByRole("dialog", { name: "עריכת אירוע חוזר" });
+    await expect(scope).toBeVisible();
+    expect(await violations(page), "edit scope").toEqual([]);
+
+    await scope.getByRole("button", { name: "המשך" }).click();
+    await expect(page.getByRole("dialog", { name: "עריכת המופע" })).toBeVisible();
+    expect(await violations(page), "form for one occurrence").toEqual([]);
   });
 
   test("settings", async ({ page }) => {

@@ -36,6 +36,7 @@
     "next-intl": "^4.14.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "rrule-temporal": "^2.2.8",
     "server-only": "^0.0.1",
     "temporal-polyfill": "^1.0.6",
     "zod": "^4.6.7"

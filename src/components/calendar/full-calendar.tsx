@@ -27,7 +27,10 @@ import { appConfig } from "@/config/app.config";
 import { DeleteEventDialog } from "@/components/events/delete-event-dialog";
 import { EventDetailsDialog } from "@/components/events/event-details-dialog";
 import { EventFormDialog } from "@/components/events/event-form-dialog";
-import type { CalendarEvent } from "@/modules/events/events";
+import { EditScopeDialog } from "@/components/events/repeat-scope";
+import { getEventAction } from "@/app/(app)/event-actions";
+import type { CalendarEvent, OccurrenceTarget } from "@/modules/events/events";
+import type { RepeatScope } from "@/modules/events/recurrence";
 import {
   type EventFormValues,
   type NewEventClick,
@@ -74,7 +77,15 @@ function displayFor(event: CalendarEvent, filters: CalendarFilters) {
 type Panel =
   | { kind: "create"; values: EventFormValues }
   | { kind: "details"; event: CalendarEvent }
-  | { kind: "edit"; event: CalendarEvent }
+  /** An occurrence of a series: which occurrences to edit, before the form opens. */
+  | { kind: "editScope"; event: CalendarEvent }
+  /** For "all", event is the series itself rather than the occurrence clicked. */
+  | {
+      kind: "edit";
+      event: CalendarEvent;
+      target?: OccurrenceTarget;
+      hasChangedOccurrences?: boolean;
+    }
   | { kind: "delete"; event: CalendarEvent };
 
 export function Calendar({
@@ -176,6 +187,50 @@ export function Calendar({
     setPanel({ kind: "details", event: info.event.extendedProps.event as CalendarEvent });
   }
 
+  // The latest choice in the "which occurrences" window. Going back from it while the
+  // series is still loading makes the late answer stale, so it no longer opens the form.
+  const scopeRequest = useRef(0);
+
+  // Editing all occurrences starts from the series itself, as now stored: the occurrence
+  // clicked may have its own changes and its own date.
+  async function chooseEditScope(event: CalendarEvent, scope: RepeatScope) {
+    const request = ++scopeRequest.current;
+    const { originalStart, originalEnd, changedOccurrences } = event.recurrence!;
+    const target = { scope, originalStart };
+    if (scope === "this") {
+      setPanel({ kind: "edit", event, target });
+      return null;
+    }
+    if (scope === "following") {
+      // The new series starts where the rule puts this occurrence, even if it alone was
+      // moved: its days stay the series' days, and a change of title alone keeps the
+      // move. Original starts compare as text: all ISO instants, or all dates.
+      const later = changedOccurrences.some((start) => start >= originalStart);
+      const atOriginalTimes = {
+        ...event,
+        isAllDay: isLocalDate(originalStart),
+        start: originalStart,
+        end: originalEnd,
+      };
+      setPanel({ kind: "edit", event: atOriginalTimes, target, hasChangedOccurrences: later });
+      return null;
+    }
+    const result = await getEventAction(event.id);
+    if (request !== scopeRequest.current) return null;
+    if (!result.ok) {
+      refetchEvents();
+      return result.message;
+    }
+    const series = result.event;
+    setPanel({
+      kind: "edit",
+      event: series,
+      target,
+      hasChangedOccurrences: (series.recurrence?.changedOccurrences.length ?? 0) > 0,
+    });
+    return null;
+  }
+
   const colorOf = (event: CalendarEvent) => ownerColors[event.owner] ?? appConfig.sharedColor;
 
   // A click on an empty spot: a day in the month view, a time slot or the "all day" row
@@ -225,7 +280,7 @@ export function Calendar({
       return events.map((event) => {
         const color = ownerColors[event.owner] ?? appConfig.sharedColor;
         return {
-          id: event.id,
+          id: event.key,
           title: event.title,
           start: event.start,
           end: event.end,
@@ -309,15 +364,28 @@ export function Calendar({
         <EventDetailsDialog
           event={panel.event}
           color={colorOf(panel.event)}
-          onEdit={() => setPanel({ kind: "edit", event: panel.event })}
+          onEdit={() =>
+            setPanel({ kind: panel.event.recurrence ? "editScope" : "edit", event: panel.event })
+          }
           onDelete={() => setPanel({ kind: "delete", event: panel.event })}
           onClose={closePanel}
+        />
+      )}
+      {panel?.kind === "editScope" && (
+        <EditScopeDialog
+          onChoose={(scope) => chooseEditScope(panel.event, scope)}
+          onCancel={() => {
+            scopeRequest.current++;
+            setPanel({ kind: "details", event: panel.event });
+          }}
         />
       )}
       {panel?.kind === "edit" && (
         <EventFormDialog
           initialValues={eventFormValues(panel.event, appConfig.timeZone)}
           editing={{ id: panel.event.id, version: panel.event.version }}
+          target={panel.target}
+          hasChangedOccurrences={panel.hasChangedOccurrences}
           onClose={closePanel}
           onSaved={onEventSaved}
           onStale={refetchEvents}

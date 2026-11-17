@@ -1,5 +1,7 @@
+import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
-import { describeWhen } from "./display";
+import messages from "../../../messages/he.json";
+import { describeRepeat, describeWhen, summarizeRepeat } from "./display";
 
 const TZ = "Asia/Jerusalem";
 const LOCALE = "he-IL";
@@ -46,5 +48,37 @@ describe("describeWhen", () => {
     expect(
       describeWhen({ isAllDay: true, start: "2026-11-12", end: "2026-11-14" }, TZ, LOCALE),
     ).toEqual({ dates: "12 בנובמבר 2026 – 13 בנובמבר 2026", times: null });
+  });
+});
+
+describe("describeRepeat", () => {
+  const t = createTranslator({ locale: "he", messages });
+  const translate = (key: string, values?: Record<string, string | number>) =>
+    (t as unknown as (key: string, values?: Record<string, string | number>) => string)(
+      key,
+      values,
+    );
+  // 5 November 2026, a Thursday.
+  const text = (rrule: string, isAllDay = false) =>
+    describeRepeat(summarizeRepeat(rrule, "2026-11-05", isAllDay, TZ, LOCALE), translate, LOCALE);
+
+  it("words each frequency", () => {
+    expect(text("FREQ=DAILY")).toBe("חוזר כל יום");
+    expect(text("FREQ=WEEKLY;BYDAY=TH;WKST=SU")).toBe("חוזר כל שבוע ביום חמישי");
+    expect(text("FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TU,TH;WKST=SU")).toBe(
+      "חוזר כל שבועיים בימים ראשון, שלישי וחמישי",
+    );
+    expect(text("FREQ=MONTHLY")).toBe("חוזר כל חודש ב-5 לחודש");
+    expect(text("FREQ=YEARLY", true)).toBe("חוזר כל שנה ב-5 בנובמבר");
+  });
+
+  it("adds how it ends", () => {
+    expect(text("FREQ=DAILY;UNTIL=20261231T215959Z")).toBe("חוזר כל יום, עד 31 בדצמבר 2026");
+    expect(text("FREQ=YEARLY;UNTIL=20301105", true)).toBe(
+      "חוזר כל שנה ב-5 בנובמבר, עד 5 בנובמבר 2030",
+    );
+    expect(text("FREQ=DAILY;COUNT=1")).toBe("חוזר כל יום, פעם אחת בסך הכול");
+    expect(text("FREQ=DAILY;COUNT=2")).toBe("חוזר כל יום, פעמיים בסך הכול");
+    expect(text("FREQ=DAILY;COUNT=10")).toBe("חוזר כל יום, 10 פעמים בסך הכול");
   });
 });
