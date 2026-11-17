@@ -5,8 +5,8 @@ Each of us sees both calendars in one place, and events are exported automatical
 dedicated "Our Calendar" calendar in each person's Google account, so they show up on
 our phones.
 
-> **Status:** Phase 2 (calendar core) is done: the calendar, events and filters work.
-> Next: recurring events (Phase 3), then the Google export (Phase 4). See
+> **Status:** Phase 3 (repeating events) is done, on top of the calendar, events and
+> filters of Phase 2. Next: the Google export (Phase 4). See
 > [`Project Spec.md`](Project%20Spec.md) for the full spec and decision log (Hebrew),
 > and [`docs/discovery.md`](docs/discovery.md) for the Phase 0 discovery report.
 
@@ -18,6 +18,10 @@ our phones.
 - **Events** have a title, an owner (Dor, Maayan, or shared), a category, a time or
   "all day" (one day or several), and an optional location and description. Both users
   create, edit and delete any event. New events start from where you clicked.
+- **Repeating events:** every day, week, two weeks (on chosen weekdays), month or year,
+  with no end, until a date, or a number of times. Editing or deleting one occurrence
+  asks whether the change is for this occurrence, this one and the following ones, or
+  all of them. The details show how the event repeats, in Hebrew.
 - **Clicking an event** (or Enter on it) shows its details and who created and last
   edited it, with "edit" and "delete" (which asks first).
 - **No lost edits:** if the other person changed or deleted an event while you were
@@ -43,7 +47,7 @@ our phones.
 | --- | --- |
 | App | [Next.js 16](https://nextjs.org) (App Router, Cache Components), React 19, TypeScript |
 | UI | [Chakra UI 3](https://chakra-ui.com), Hebrew text via [next-intl](https://next-intl.dev) |
-| Calendar | [FullCalendar 7](https://fullcalendar.io) (MIT), [Temporal](https://tc39.es/proposal-temporal/) via `temporal-polyfill` for dates and time zones |
+| Calendar | [FullCalendar 7](https://fullcalendar.io) (MIT), [Temporal](https://tc39.es/proposal-temporal/) via `temporal-polyfill` for dates and time zones, [rrule-temporal](https://github.com/ggaabe/rrule-temporal) for repeating events |
 | Auth | [Better Auth](https://www.better-auth.com) with Google |
 | Database | PostgreSQL 16 with [Prisma 7](https://www.prisma.io) |
 | Tests | [Vitest](https://vitest.dev) (unit + integration), [Playwright](https://playwright.dev) (end-to-end), [axe-core](https://github.com/dequelabs/axe-core) (accessibility) |
@@ -88,6 +92,23 @@ The database URLs in `.env.example` already match the Docker database.
   (`deletedAt`), so the Google export can remove its copy later. Every change raises
   `version`, which is also what detects edits made at the same time.
 
+Repeating events:
+
+- A series is one `event` row with an `rrule` ([RFC 5545](https://www.rfc-editor.org/rfc/rfc5545),
+  without `DTSTART`: the series starts when the event starts, in its time zone). Weekly
+  rules always say `WKST=SU`, so "every two weeks" counts weeks from Sunday.
+- Occurrences are worked out on the server for the range being shown; they aren't
+  stored. Each occurrence keeps the local times of the first one, also across a clock
+  change.
+- An occurrence that was changed or deleted on its own is a row in `event_exception`,
+  found by its original start. Its columns are null where it is the same as the series,
+  so a change to the whole series still reaches it.
+- "This and the following ones" splits the series: the original ends before the
+  occurrence and a new event (`splitFromEventId`) starts at it, the way Google does it.
+- Changing the times, the days or the repeat of a series drops the changes and
+  deletions of single occurrences, and the form warns before saving. A change to any
+  occurrence raises the series' `version`.
+
 ## Configuration
 
 Settings that aren't secret live in [`src/config/app.config.ts`](src/config/app.config.ts):
@@ -117,8 +138,9 @@ fail on any browser console error.
   are tagged `@mobile`.
 - [`tests/e2e/accessibility.spec.ts`](tests/e2e/accessibility.spec.ts) scans every
   screen and dialog with axe-core (WCAG 2.1 A and AA).
-- `E2E_SCREENSHOTS=<folder> npm run test:e2e -- calendar` saves screenshots of the
-  calendar views, to check them by eye.
+- `E2E_SCREENSHOTS=<folder> npm run test:e2e -- calendar repeating-events` saves
+  screenshots of the calendar views and of the repeat fields on a phone, to check them
+  by eye.
 
 Other checks: `npm run lint`, `npm run typecheck`, `npm run format:check`
 (`npm run format` fixes formatting).
@@ -132,7 +154,7 @@ every push and on every Pull Request into `main`.
 ## Workflow
 
 `main` is protected: changes go through a branch per phase (for example
-`phase-2-calendar-core`) and a Pull Request.
+`phase-3-recurrence`) and a Pull Request.
 
 ## Deployment
 
@@ -185,12 +207,14 @@ src/
   app/                 routes: (app)/ = signed-in pages and their server actions,
                        login/, privacy/, api/ (auth, events, health)
   components/          providers (Chakra, Emotion), calendar/ (FullCalendar, URL
-                       state, filters), events/ (event form, details, delete dialogs)
+                       state, filters), events/ (event form, details, delete and
+                       "which occurrences" dialogs)
   config/              app.config.ts
   i18n/                next-intl setup (one fixed locale)
   lib/                 Prisma client, Better Auth server and client
   modules/             domain logic: auth/ (allowlist, session), users/ (colors),
-                       events/ (time zones, validation, form behavior, data access)
+                       events/ (time zones, repeat rules, validation, form behavior,
+                       descriptions, data access)
   proxy.ts             redirects to /login when there is no session cookie
 messages/he.json       all UI text
 prisma/                schema and migrations
