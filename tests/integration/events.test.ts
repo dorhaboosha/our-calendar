@@ -107,6 +107,7 @@ describe("createEvent", () => {
     expect(event.recurrence).toEqual({
       rrule: "FREQ=WEEKLY;BYDAY=TH;WKST=SU;COUNT=3",
       originalStart: "2026-11-05T08:00:00.000Z",
+      originalEnd: "2026-11-05T09:00:00.000Z",
       changedOccurrences: [],
       remainingCount: 3,
     });

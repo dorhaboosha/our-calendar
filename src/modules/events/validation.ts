@@ -3,6 +3,7 @@
 // all-day events, and a rule (RRULE) for a repeating one. Errors are codes; the UI
 // shows messages.events.errors.<code>.
 
+import { Temporal } from "temporal-polyfill";
 import { z } from "zod";
 import { appConfig } from "@/config/app.config";
 import {
@@ -32,7 +33,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export const REPEAT_COUNT_MAX = 999;
 /**
  * The shortest time between occurrences, in days. An occurrence may not be longer, so
- * occurrences of a series never overlap one another (as in Google Calendar).
+ * occurrences of a series never overlap one another (as in Google Calendar). Weekly
+ * series on several days use the shortest gap between their days instead.
  */
 const REPEAT_PERIOD_DAYS: Record<Repeat["frequency"], number> = {
   daily: 1,
@@ -205,8 +207,14 @@ export function validateEvent(input: unknown, timeZone = appConfig.timeZone): Ev
     ...(time.ok ? {} : time.errors),
     ...(repeat && !repeat.ok ? repeat.errors : {}),
   };
-  if (time.ok && repeat?.ok && isLongerThanPeriod(time.time, repeat.repeat.frequency)) {
-    errors.repeatFrequency = "repeatTooOften";
+  if (time.ok && repeat?.ok) {
+    const gap = shortestGapDays(repeat.repeat);
+    if (isLongerThan(time.time, gap, timeZone)) {
+      // Blame the days if they are what brings occurrences closer than the frequency.
+      const field =
+        gap < REPEAT_PERIOD_DAYS[repeat.repeat.frequency] ? "repeatWeekdays" : "repeatFrequency";
+      errors[field] = "repeatTooOften";
+    }
   }
   if (!time.ok || Object.keys(errors).length > 0) return { ok: false, errors };
 
@@ -300,11 +308,32 @@ function validateRepeat(
     : { ok: true, repeat: { frequency: input.frequency, weekdays, end } };
 }
 
-function isLongerThanPeriod(time: EventTime, frequency: Repeat["frequency"]): boolean {
-  const period = REPEAT_PERIOD_DAYS[frequency];
-  return time.kind === "allDay"
-    ? daysBetween(time.startDate, time.endDateExclusive) > period
-    : time.endAt.getTime() - time.startAt.getTime() > period * MS_PER_DAY;
+/**
+ * The fewest days from one occurrence's start to the next one's: the frequency's period,
+ * or for several weekdays the shortest gap between them, counting the gap from the last
+ * day back round to the first (a week later, or two weeks for every two weeks).
+ */
+function shortestGapDays(repeat: Repeat): number {
+  const period = REPEAT_PERIOD_DAYS[repeat.frequency];
+  if (repeat.weekdays.length < 2) return period;
+  const days = repeat.weekdays.map((day) => WEEKDAYS.indexOf(day)).sort((a, b) => a - b);
+  const gaps = days.map((day, index) =>
+    index === 0 ? days[0] + period - days[days.length - 1] : day - days[index - 1],
+  );
+  return Math.min(...gaps);
+}
+
+/**
+ * Whether the event runs past the start of the next occurrence, days later on the local
+ * clock: a daily 10:00 to 10:00 the next day still fits on the 25-hour day the clocks
+ * go back.
+ */
+function isLongerThan(time: EventTime, days: number, timeZone: string): boolean {
+  if (time.kind === "allDay") return daysBetween(time.startDate, time.endDateExclusive) > days;
+  const nextStart = Temporal.Instant.fromEpochMilliseconds(time.startAt.getTime())
+    .toZonedDateTimeISO(timeZone)
+    .add({ days });
+  return time.endAt.getTime() > nextStart.epochMilliseconds;
 }
 
 /** The form field for each part of the repeat input. */

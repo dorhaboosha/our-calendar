@@ -228,12 +228,17 @@ const isEnd = (part: string) => part.startsWith("COUNT=") || part.startsWith("UN
 
 /**
  * The series' rule, ending just before its occurrence at originalStart: the part of the
- * series that "this and following" leaves in place.
+ * series that "this and following" leaves in place. It ends on the day before, written as
+ * toRRule writes a last date, so the form shows that day and saving it unchanged keeps
+ * the same occurrences (a series has at most one occurrence a day).
  */
 export function endBefore(series: Series, originalStart: string): string {
+  const day = series.isAllDay
+    ? originalStart
+    : toLocal(new Date(originalStart), series.timezone).date;
   const until = series.isAllDay
-    ? compactDate(addDays(originalStart, -1))
-    : utcStamp(new Date(originalStart).getTime() - 1000);
+    ? compactDate(addDays(day, -1))
+    : utcStamp(toInstant(day, "00:00", series.timezone).getTime() - 1000);
   return [...series.rrule.split(";").filter((part) => !isEnd(part)), `UNTIL=${until}`].join(";");
 }
 

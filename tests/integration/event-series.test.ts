@@ -6,9 +6,11 @@ import {
   type OccurrenceTarget,
   createEvent,
   deleteEvent,
+  getEvent,
   listEvents,
   updateEvent,
 } from "@/modules/events/events";
+import { eventFormValues, toEventInput } from "@/modules/events/form";
 import { toInstant } from "@/modules/events/time";
 import { type EventInput, validateEvent } from "@/modules/events/validation";
 
@@ -209,8 +211,22 @@ describe("this and following", () => {
     ]);
     const rows = await prisma.event.findMany({ orderBy: { createdAt: "asc" } });
     expect(rows.map((row) => [row.rrule, row.splitFromEventId, row.version])).toEqual([
-      ["FREQ=WEEKLY;BYDAY=TH;WKST=SU;UNTIL=20261119T075959Z", null, 2],
+      ["FREQ=WEEKLY;BYDAY=TH;WKST=SU;UNTIL=20261118T215959Z", null, 2],
       ["FREQ=WEEKLY;BYDAY=TH;WKST=SU", series.id, 1],
+    ]);
+
+    // The original series' form shows its last date (the 18th); saving it with only a
+    // new title must not bring back the 19th, which now belongs to the new series.
+    const original = (await getEvent(series.id))!;
+    const values = { ...eventFormValues(original, TZ), title: "Pilates!" };
+    await updated(original, toEventInput(values), { scope: "all", originalStart: original.start });
+    expect(await calendar()).toEqual([
+      "5 Nov, 10:00 Pilates!",
+      "12 Nov, 10:00 Pilates!",
+      "19 Nov, 10:00 Yoga",
+      "26 Nov, 10:00 Yoga",
+      "3 Dec, 10:00 Yoga",
+      "10 Dec, 10:00 Yoga",
     ]);
   });
 
@@ -292,6 +308,45 @@ describe("this and following", () => {
     ]);
     expect(await prisma.eventException.count({ where: { title: "Late" } })).toBe(0);
     expect(await prisma.eventException.count({ where: { title: "Early" } })).toBe(1);
+  });
+
+  it("from a moved occurrence: the form starts at its original times, so the move stays", async () => {
+    const series = await createSeries();
+    // Thursday the 19th moved to Friday the 20th at noon (one occurrence has no repeat).
+    await updated(
+      series,
+      {
+        startDate: "2026-11-20",
+        endDate: "2026-11-20",
+        startTime: "12:00",
+        endTime: "13:00",
+        repeat: undefined,
+      },
+      target("this", 19),
+    );
+    const [occurrence] = await listEvents(
+      toInstant("2026-11-20", "00:00", TZ),
+      toInstant("2026-11-21", "00:00", TZ),
+      TZ,
+    );
+    expect(occurrence.recurrence).toMatchObject({
+      originalStart: "2026-11-19T08:00:00.000Z",
+      originalEnd: "2026-11-19T09:00:00.000Z",
+    });
+
+    // What the calendar opens for "this and following": the original Thursday, so the
+    // series' days still include the start's day, and a new title alone keeps the move.
+    const { originalStart, originalEnd } = occurrence.recurrence!;
+    const values = eventFormValues({ ...occurrence, start: originalStart, end: originalEnd }, TZ);
+    await updated(series, { ...toEventInput(values), title: "Yoga" }, target("following", 19), 2);
+    expect(await calendar()).toEqual([
+      "5 Nov, 10:00 Pilates",
+      "12 Nov, 10:00 Pilates",
+      "20 Nov, 12:00 Yoga",
+      "26 Nov, 10:00 Yoga",
+      "3 Dec, 10:00 Yoga",
+      "10 Dec, 10:00 Yoga",
+    ]);
   });
 
   it("from the first occurrence, changes the whole series", async () => {

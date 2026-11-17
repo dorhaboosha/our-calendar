@@ -164,7 +164,9 @@ export function eventFormValues(event: CalendarEvent, timeZone: string): EventFo
 
 function repeatFormValues(event: CalendarEvent, timeZone: string): RepeatFormValues {
   if (!event.recurrence) return NO_REPEAT;
-  const { frequency, weekdays, end } = fromRRule(event.recurrence.rrule, event.isAllDay, timeZone);
+  // The rule is the series': an occurrence may have been changed to or from all day.
+  const seriesIsAllDay = isLocalDate(event.recurrence.originalStart);
+  const { frequency, weekdays, end } = fromRRule(event.recurrence.rrule, seriesIsAllDay, timeZone);
   return {
     frequency,
     weekdays,

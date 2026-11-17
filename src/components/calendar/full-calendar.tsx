@@ -187,22 +187,36 @@ export function Calendar({
     setPanel({ kind: "details", event: info.event.extendedProps.event as CalendarEvent });
   }
 
+  // The latest choice in the "which occurrences" window. Going back from it while the
+  // series is still loading makes the late answer stale, so it no longer opens the form.
+  const scopeRequest = useRef(0);
+
   // Editing all occurrences starts from the series itself, as now stored: the occurrence
   // clicked may have its own changes and its own date.
   async function chooseEditScope(event: CalendarEvent, scope: RepeatScope) {
-    const { originalStart, changedOccurrences } = event.recurrence!;
+    const request = ++scopeRequest.current;
+    const { originalStart, originalEnd, changedOccurrences } = event.recurrence!;
     const target = { scope, originalStart };
     if (scope === "this") {
       setPanel({ kind: "edit", event, target });
       return null;
     }
     if (scope === "following") {
-      // Original starts compare as text: all ISO instants, or all dates.
+      // The new series starts where the rule puts this occurrence, even if it alone was
+      // moved: its days stay the series' days, and a change of title alone keeps the
+      // move. Original starts compare as text: all ISO instants, or all dates.
       const later = changedOccurrences.some((start) => start >= originalStart);
-      setPanel({ kind: "edit", event, target, hasChangedOccurrences: later });
+      const atOriginalTimes = {
+        ...event,
+        isAllDay: isLocalDate(originalStart),
+        start: originalStart,
+        end: originalEnd,
+      };
+      setPanel({ kind: "edit", event: atOriginalTimes, target, hasChangedOccurrences: later });
       return null;
     }
     const result = await getEventAction(event.id);
+    if (request !== scopeRequest.current) return null;
     if (!result.ok) {
       refetchEvents();
       return result.message;
@@ -360,7 +374,10 @@ export function Calendar({
       {panel?.kind === "editScope" && (
         <EditScopeDialog
           onChoose={(scope) => chooseEditScope(panel.event, scope)}
-          onCancel={() => setPanel({ kind: "details", event: panel.event })}
+          onCancel={() => {
+            scopeRequest.current++;
+            setPanel({ kind: "details", event: panel.event });
+          }}
         />
       )}
       {panel?.kind === "edit" && (

@@ -274,6 +274,40 @@ describe("validateEvent: repeating events", () => {
     });
   });
 
+  it("measures the time between occurrences on the local clock", () => {
+    // 24 October to 25 October 2026 is 25 hours: the clocks go back that night.
+    const daily = { frequency: "daily", end: "never" };
+    const allNight = {
+      ...timed,
+      startDate: "2026-10-24",
+      endDate: "2026-10-25",
+      startTime: "10:00",
+      endTime: "10:00",
+      repeat: daily,
+    };
+    expect(draftOf(allNight).rrule).toBe("FREQ=DAILY");
+    expect(errorsOf({ ...allNight, endTime: "10:30" })).toEqual({
+      repeatFrequency: "repeatTooOften",
+    });
+  });
+
+  it("refuses an event longer than the gap between its chosen weekdays", () => {
+    // Two days from Sunday 8 November.
+    const twoDays = { ...allDay, startDate: "2026-11-08", endDate: "2026-11-09" };
+    const on = (frequency: string, weekdays: string[]) => ({
+      ...twoDays,
+      repeat: { frequency, weekdays, end: "never" },
+    });
+    expect(errorsOf(on("weekly", ["SU", "MO"]))).toEqual({ repeatWeekdays: "repeatTooOften" });
+    // Saturday to Sunday, round the end of the week.
+    expect(errorsOf(on("weekly", ["SU", "SA"]))).toEqual({ repeatWeekdays: "repeatTooOften" });
+    expect(draftOf(on("weekly", ["SU", "TU"])).rrule).toBe("FREQ=WEEKLY;BYDAY=SU,TU;WKST=SU");
+    // Every two weeks, Saturday to the next Sunday is 8 days.
+    expect(draftOf(on("biweekly", ["SU", "SA"])).rrule).toBe(
+      "FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,SA;WKST=SU",
+    );
+  });
+
   it("reports time and repeat errors together", () => {
     expect(errorsOf({ ...weekly({ weekdays: ["MO"] }), endTime: "09:00" })).toEqual({
       endTime: "endNotAfterStart",

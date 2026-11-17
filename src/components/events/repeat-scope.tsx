@@ -39,7 +39,7 @@ type Props = {
    * to show (the series couldn't be loaded).
    */
   onChoose: (scope: RepeatScope) => Promise<string | null>;
-  /** "Cancel": back to the event's details. */
+  /** "Cancel": back to the event's details, also while the series is loading. */
   onCancel: () => void;
 };
 
@@ -86,7 +86,7 @@ export function EditScopeDialog({ onChoose, onCancel }: Props) {
               )}
             </Dialog.Body>
             <Dialog.Footer>
-              <Button variant="outline" onClick={onCancel} disabled={pending}>
+              <Button variant="outline" onClick={onCancel}>
                 {t("cancel")}
               </Button>
               <Button onClick={choose} loading={pending} loadingText={t("loading")}>

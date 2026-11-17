@@ -265,14 +265,34 @@ describe("splitting a series", () => {
     "2026-11-05T11:00+02:00",
   );
 
-  it("ends the rule just before an occurrence, instead of after a number of times", () => {
+  it("ends the rule on the day before an occurrence, instead of after a number of times", () => {
     const before = endBefore(weekly, "2026-11-19T08:00:00.000Z");
-    expect(before).toBe("FREQ=WEEKLY;BYDAY=TH;WKST=SU;UNTIL=20261119T075959Z");
+    // The last second of 18 November in Israel.
+    expect(before).toBe("FREQ=WEEKLY;BYDAY=TH;WKST=SU;UNTIL=20261118T215959Z");
     expect(
       starts({ ...weekly, rrule: before }, "2026-11-01T00:00+02:00", "2027-02-01T00:00+02:00"),
     ).toEqual(["2026-11-05T08:00:00.000Z", "2026-11-12T08:00:00.000Z"]);
     const birthday = allDay("FREQ=YEARLY;UNTIL=20301105", "2026-11-05", "2026-11-06");
     expect(endBefore(birthday, "2028-11-05")).toBe("FREQ=YEARLY;UNTIL=20281104");
+  });
+
+  it("keeps the same occurrences when the shortened rule is saved again unchanged", () => {
+    const window = ["2026-11-01T00:00+02:00", "2030-01-01T00:00+02:00"] as const;
+    const daily = timed("FREQ=DAILY", "2026-11-05T10:00+02:00", "2026-11-05T11:00+02:00");
+    const yearly = allDay("FREQ=YEARLY;COUNT=10", "2026-11-05", "2026-11-06");
+    for (const [series, originalStart] of [
+      [weekly, "2026-11-19T08:00:00.000Z"],
+      [daily, "2026-11-20T08:00:00.000Z"],
+      [yearly, "2028-11-05"],
+    ] as const) {
+      const before = endBefore(series, originalStart);
+      // What the form shows for the shortened series, and what saving it writes back.
+      const resaved = toRRule(fromRRule(before, series.isAllDay, TZ), series.isAllDay, TZ);
+      expect(resaved).toBe(before);
+      const occurrences = starts({ ...series, rrule: resaved }, ...window);
+      expect(occurrences).not.toContain(originalStart);
+      expect(occurrences).toEqual(starts({ ...series, rrule: before }, ...window));
+    }
   });
 
   it("counts the occurrences before one", () => {

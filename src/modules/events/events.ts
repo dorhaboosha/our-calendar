@@ -33,6 +33,8 @@ export type CalendarEvent = {
     rrule: string;
     /** Identifies the occurrence, even after it was moved: its start as the rule makes it. */
     originalStart: string;
+    /** Its end as the rule makes it; differs from end only if the occurrence was moved. */
+    originalEnd: string;
     /** The original starts of the series' occurrences that were changed on their own. */
     changedOccurrences: string[];
     /** A series that ends after a number of times: how many from this occurrence on. */
@@ -160,6 +162,7 @@ function toCalendarEvent(row: EventRow): CalendarEvent {
       ? {
           rrule: row.rrule,
           originalStart: start,
+          originalEnd: end,
           changedOccurrences: row.exceptions.map(originalStartOf),
           remainingCount: countOf(row.rrule),
         }
@@ -191,21 +194,6 @@ export async function listEvents(
   timeZone: string,
 ): Promise<CalendarEvent[]> {
   const dates = instantRangeToDates(start, end, timeZone);
-  const oneOffRows = await prisma.event.findMany({
-    where: {
-      deletedAt: null,
-      rrule: null,
-      OR: [
-        { isAllDay: false, startAt: { lt: end }, endAt: { gt: start } },
-        {
-          isAllDay: true,
-          startDate: { lt: dateToDb(dates.endDate) },
-          endDate: { gt: dateToDb(dates.startDate) },
-        },
-      ],
-    },
-    include: eventInclude,
-  });
   // A series may have occurrences in the range if it starts before the range ends, or if
   // one of its occurrences was moved to before then. Its end (a count or a last date)
   // is only known from the rule, so the rest is left to occurrencesBetween.
@@ -213,18 +201,36 @@ export async function listEvents(
     { startAt: { lt: end } },
     { startDate: { lt: dateToDb(dates.endDate) } },
   ] satisfies Prisma.EventExceptionWhereInput[];
-  const seriesRows = await prisma.event.findMany({
+  // One query for both kinds, so an event that just became a series (or stopped being
+  // one) is never listed twice or missed.
+  const rows = await prisma.event.findMany({
     where: {
       deletedAt: null,
-      rrule: { not: null },
-      OR: [...startsBeforeEnd, { exceptions: { some: { OR: startsBeforeEnd } } }],
+      OR: [
+        {
+          rrule: null,
+          OR: [
+            { isAllDay: false, startAt: { lt: end }, endAt: { gt: start } },
+            {
+              isAllDay: true,
+              startDate: { lt: dateToDb(dates.endDate) },
+              endDate: { gt: dateToDb(dates.startDate) },
+            },
+          ],
+        },
+        {
+          rrule: { not: null },
+          OR: [...startsBeforeEnd, { exceptions: { some: { OR: startsBeforeEnd } } }],
+        },
+      ],
     },
     include: seriesInclude,
   });
-  return [
-    ...oneOffRows.map(toCalendarEvent),
-    ...seriesRows.flatMap((row) => seriesOccurrences(row, start, end, dates)),
-  ].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  return rows
+    .flatMap((row) =>
+      row.rrule ? seriesOccurrences(row, start, end, dates) : [toCalendarEvent(row)],
+    )
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 }
 
 const isMoved = (exception: ExceptionRow) => exception.isAllDay !== null;
@@ -250,13 +256,7 @@ function seriesOccurrences(
     const exception = exceptions.get(occurrence.start);
     if (exception && (exception.isCancelled || isMoved(exception))) return [];
     return [
-      occurrenceOf(
-        first,
-        series,
-        occurrence.start,
-        { ...occurrence, isAllDay: row.isAllDay },
-        exception,
-      ),
+      occurrenceOf(first, series, occurrence, { ...occurrence, isAllDay: row.isAllDay }, exception),
     ];
   });
 
@@ -266,24 +266,26 @@ function seriesOccurrences(
     const overlaps = times.isAllDay
       ? compareDates(times.start, dates.endDate) < 0 && compareDates(times.end, dates.startDate) > 0
       : new Date(times.start) < end && new Date(times.end) > start;
-    const originalStart = originalStartOf(exception);
     // An exception whose occurrence is no longer part of the series is ignored.
-    return overlaps && occurrenceAt(series, originalStart)
-      ? [occurrenceOf(first, series, originalStart, times, exception)]
-      : [];
+    const original = overlaps && occurrenceAt(series, originalStartOf(exception));
+    return original ? [occurrenceOf(first, series, original, times, exception)] : [];
   });
 
   return [...inPlace, ...moved];
 }
 
-/** One occurrence: the series' details, with the exception's changes if it has one. */
+/**
+ * One occurrence: the series' details, with the exception's changes if it has one.
+ * original is the occurrence as the rule makes it; times are where it is now.
+ */
 function occurrenceOf(
   first: CalendarEvent,
   series: Series,
-  originalStart: string,
+  original: Occurrence,
   times: Occurrence & { isAllDay: boolean },
   exception: ExceptionRow | undefined,
 ): CalendarEvent {
+  const originalStart = original.start;
   // "" in an exception: cleared on this occurrence only.
   const text = (changed: string | null | undefined, ofSeries: string | null) =>
     changed === null || changed === undefined ? ofSeries : changed || null;
@@ -295,6 +297,7 @@ function occurrenceOf(
     recurrence: {
       ...first.recurrence!,
       originalStart,
+      originalEnd: original.end,
       remainingCount: count === null ? null : count - countBefore(series, originalStart),
     },
     title: exception?.title ?? first.title,
@@ -324,16 +327,32 @@ export async function getEvent(id: string): Promise<CalendarEvent | null> {
   return row ? toCalendarEvent(row) : null;
 }
 
-/** One occurrence of a series as now stored, by its original start. */
-async function getOccurrence(id: string, originalStart: string): Promise<CalendarEvent> {
-  const row = await prisma.event.findUniqueOrThrow({ where: { id }, include: seriesInclude });
+/**
+ * One occurrence of a series as now stored, by its original start. Null if the series
+ * was deleted, or no longer has that occurrence.
+ */
+async function getOccurrence(id: string, originalStart: string): Promise<CalendarEvent | null> {
+  const row = await prisma.event.findFirst({
+    where: { id, deletedAt: null, rrule: { not: null } },
+    include: seriesInclude,
+  });
+  if (!row) return null;
   const series = seriesOf(row);
+  const original = occurrenceAt(series, originalStart);
+  if (!original) return null;
   const exception = row.exceptions.find((each) => originalStartOf(each) === originalStart);
   const times =
-    exception && isMoved(exception)
-      ? timesOf(exception)
-      : { ...occurrenceAt(series, originalStart)!, isAllDay: row.isAllDay };
-  return occurrenceOf(toCalendarEvent(row), series, originalStart, times, exception);
+    exception && isMoved(exception) ? timesOf(exception) : { ...original, isAllDay: row.isAllDay };
+  return occurrenceOf(toCalendarEvent(row), series, original, times, exception);
+}
+
+/**
+ * What a save returns: the event as now stored. If someone changed or deleted it in the
+ * moment since (so it is gone, or no longer has the occurrence), that is reported like
+ * any change made meanwhile, rather than as a success with no event.
+ */
+async function savedEvent(id: string, event: CalendarEvent | null): Promise<EventResult> {
+  return event ? { ok: true, event } : missingOrConflict(id);
 }
 
 /** The database columns for a validated draft, including the owner's user id. */
@@ -498,7 +517,7 @@ async function updateAll(
     return true;
   });
   if (!saved) return missingOrConflict(id);
-  return { ok: true, event: (await getEvent(id))! };
+  return savedEvent(id, await getEvent(id));
 }
 
 /**
@@ -544,7 +563,7 @@ async function updateOccurrence(
     changed && changes,
   );
   if (!saved) return missingOrConflict(id);
-  return { ok: true, event: await getOccurrence(id, occurrence.start) };
+  return savedEvent(id, await getOccurrence(id, occurrence.start));
 }
 
 /**
@@ -626,7 +645,7 @@ async function updateFollowing(
     return created.id;
   });
   if (!newId) return missingOrConflict(id);
-  return { ok: true, event: (await getEvent(newId))! };
+  return savedEvent(newId, await getEvent(newId));
 }
 
 /**

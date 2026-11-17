@@ -166,6 +166,7 @@ describe("eventFormValues", () => {
       recurrence: {
         rrule: "FREQ=DAILY;COUNT=10",
         originalStart: saved.start,
+        originalEnd: saved.end,
         changedOccurrences: [],
         remainingCount: 7,
       },
@@ -180,6 +181,7 @@ describe("eventFormValues", () => {
       recurrence: {
         rrule: "FREQ=WEEKLY;INTERVAL=2;BYDAY=SU,TH;WKST=SU;UNTIL=20261231T215959Z",
         originalStart: "2026-11-12T08:00:00.000Z",
+        originalEnd: "2026-11-12T09:30:00.000Z",
         changedOccurrences: [],
         remainingCount: null,
       },
@@ -190,6 +192,23 @@ describe("eventFormValues", () => {
       end: "until",
       until: "2026-12-31",
       count: "10",
+    });
+  });
+
+  it("an occurrence of an all-day series changed to have times reads the series' last date", () => {
+    const occurrence: CalendarEvent = {
+      ...saved,
+      recurrence: {
+        rrule: "FREQ=YEARLY;UNTIL=20291104",
+        originalStart: "2027-11-05",
+        originalEnd: "2027-11-06",
+        changedOccurrences: ["2027-11-05"],
+        remainingCount: null,
+      },
+    };
+    expect(eventFormValues(occurrence, TZ).repeat).toMatchObject({
+      end: "until",
+      until: "2029-11-04",
     });
   });
 
