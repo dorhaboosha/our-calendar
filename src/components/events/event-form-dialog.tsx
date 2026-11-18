@@ -150,6 +150,10 @@ export function EventFormDialog({
     <Dialog.Root
       open
       onOpenChange={(details) => !details.open && onClose()}
+      // Focus leaving the window doesn't close it, only a click outside or Escape: the
+      // window it replaced returns focus to the calendar as it closes, just after this
+      // one opens, which would close this one at once.
+      onFocusOutside={(event) => event.preventDefault()}
       size={{ base: "full", md: "lg" }}
       placement="center"
       scrollBehavior="inside"

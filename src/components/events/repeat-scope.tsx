@@ -66,6 +66,10 @@ export function EditScopeDialog({ onChoose, onCancel }: Props) {
     <Dialog.Root
       open
       onOpenChange={(details) => !details.open && onCancel()}
+      // Focus leaving the window doesn't close it, only a click outside or Escape: the
+      // window it replaced returns focus to the calendar as it closes, just after this
+      // one opens, which would close this one at once.
+      onFocusOutside={(event) => event.preventDefault()}
       size="sm"
       placement="center"
     >
