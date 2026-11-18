@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import { enqueueEventExports } from "@/modules/jobs/outbox";
 import {
   type Occurrence,
   type RepeatScope,
@@ -389,13 +390,17 @@ async function columnsFor(
 export async function createEvent(draft: EventDraft, actorUserId: string): Promise<EventResult> {
   const columns = await columnsFor(draft);
   if (!columns.ok) return columns;
-  const { id } = await prisma.event.create({
-    data: {
-      ...(columns.data as Prisma.EventUncheckedCreateInput),
-      createdByUserId: actorUserId,
-      updatedByUserId: actorUserId,
-    },
-    select: { id: true },
+  const { id } = await prisma.$transaction(async (tx) => {
+    const created = await tx.event.create({
+      data: {
+        ...(columns.data as Prisma.EventUncheckedCreateInput),
+        createdByUserId: actorUserId,
+        updatedByUserId: actorUserId,
+      },
+      select: { id: true },
+    });
+    await enqueueEventExports(tx, [created.id]);
+    return created;
   });
   // Read back separately, like updateEvent: an `include` on create makes Prisma load the
   // three related users in parallel on the transaction's single connection, which pg
@@ -407,6 +412,7 @@ export async function createEvent(draft: EventDraft, actorUserId: string): Promi
 /**
  * Within a transaction: raises the event's version, as the user who changed it, but only
  * if it is still at the version the user loaded. False if it was saved or deleted since.
+ * Every change goes through here, so this is also where its export is queued.
  */
 async function bumpVersion(
   tx: Prisma.TransactionClient,
@@ -419,7 +425,9 @@ async function bumpVersion(
     where: { id, version: expectedVersion, deletedAt: null },
     data: { ...data, updatedByUserId: actorUserId, version: { increment: 1 } },
   });
-  return count === 1;
+  if (count !== 1) return false;
+  await enqueueEventExports(tx, [id]);
+  return true;
 }
 
 /** A series, and the occurrence a change was made from (by its original start). */
@@ -635,6 +643,7 @@ async function updateFollowing(
       },
       select: { id: true },
     });
+    await enqueueEventExports(tx, [created.id]);
     await tx.eventException.updateMany({
       where: { id: { in: moved } },
       data: { eventId: created.id },
