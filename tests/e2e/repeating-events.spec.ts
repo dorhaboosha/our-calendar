@@ -86,6 +86,34 @@ test("deleting an occurrence asks which occurrences", async ({ page }) => {
   await expect(confirm.getByRole("button", { name: "ביטול" })).toBeFocused();
 });
 
+test("the window after the details stays open when focus goes back to the calendar", async ({
+  page,
+}) => {
+  // Closing the details returns focus to the event clicked in the calendar, outside the
+  // window that replaces it. In a real browser that happened after the next window was
+  // listening for focus leaving it, which closed it at once: a first click on "עריכה"
+  // seemed to do nothing. Moving focus there directly reproduces it at any speed.
+  const focusTheCalendarEvent = () =>
+    calendar(page)
+      .locator('[role="cell"][data-date="2026-11-19"]')
+      // Hidden from assistive technology while a window is open.
+      .getByRole("button", { name: /פילאטיס/, includeHidden: true })
+      .evaluate((element: HTMLElement) => element.focus());
+
+  await openOccurrence(page, 19);
+  await details(page).getByRole("button", { name: "עריכה" }).click();
+  const scope = page.getByRole("dialog", { name: "עריכת אירוע חוזר" });
+  await expect(scope).toBeVisible();
+  await focusTheCalendarEvent();
+  await expect(scope).toBeVisible();
+
+  await scope.getByRole("button", { name: "המשך" }).click();
+  const form = page.getByRole("dialog", { name: "עריכת המופע" });
+  await expect(form).toBeVisible();
+  await focusTheCalendarEvent();
+  await expect(form).toBeVisible();
+});
+
 const occurrences = (page: Page) => calendar(page).getByText(/^פילאטיס/);
 
 async function chooseScope(page: Page, scope: string) {
