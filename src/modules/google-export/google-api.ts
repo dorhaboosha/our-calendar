@@ -23,6 +23,8 @@ export type NewCalendar = { summary: string; description: string; timeZone: stri
 export interface GoogleCalendarApi {
   /** Creates a secondary calendar; returns its id. */
   createCalendar(calendar: NewCalendar): Promise<{ id: string }>;
+  /** Deletes a calendar the app created, with its events. 404 if it is already gone. */
+  deleteCalendar(calendarId: string): Promise<void>;
   /** False if the calendar is gone (deleted by the user in Google). */
   calendarExists(calendarId: string): Promise<boolean>;
   /** Creates an event with the app's id. 409 if one with this id exists, even deleted. */

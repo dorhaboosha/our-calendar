@@ -3,7 +3,14 @@ import { NextRequest } from "next/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import type { CurrentUser } from "@/modules/auth/current-user";
-import { getExportStatus, saveConnection } from "@/modules/google-export/connection";
+import {
+  disconnect,
+  exportAgain,
+  exportNeedsAction,
+  getExportStatus,
+  saveConnection,
+} from "@/modules/google-export/connection";
+import { FakeGoogle } from "./fake-google";
 import { FLOW_COOKIE, decodeFlow, encodeFlow } from "@/modules/google-export/flow-cookie";
 import { GoogleApiError } from "@/modules/google-export/google-api";
 import { CALENDAR_SCOPE, type GrantedAccess } from "@/modules/google-export/oauth";
@@ -153,6 +160,7 @@ describe("the export's state", () => {
       failed: 0,
       lastSuccessfulExportAt: null,
       lastError: null,
+      canDeleteCalendar: false,
     });
     await saveConnection(dorId, access());
     expect(await getExportStatus(dorId)).toMatchObject({ state: "exporting", pending: 1 });
@@ -171,6 +179,137 @@ describe("the export's state", () => {
       state: "needsAction",
       lastError: "calendarDeleted",
     });
+  });
+});
+
+describe("export again and disconnect", () => {
+  let google: FakeGoogle;
+  let calendarId: string;
+  const revoke = vi.fn<(token: string) => Promise<void>>(async () => {});
+
+  /** Connected, with the calendar created and one event exported. */
+  async function exported() {
+    await saveConnection(dorId, access());
+    google = new FakeGoogle();
+    calendarId = (await google.createCalendar({ summary: "c", description: "", timeZone: "UTC" }))
+      .id;
+    const target = await targetOf();
+    await prisma.googleExportTarget.update({
+      where: { id: target.id },
+      data: { googleCalendarId: calendarId, lastSuccessfulExportAt: new Date() },
+    });
+    const event = await prisma.event.create({
+      data: {
+        title: "x",
+        ownerType: "SHARED",
+        category: "other",
+        isAllDay: true,
+        startDate: new Date("2026-11-05"),
+        endDate: new Date("2026-11-06"),
+        createdByUserId: dorId,
+        updatedByUserId: dorId,
+      },
+    });
+    await prisma.eventExportMapping.create({
+      data: {
+        eventId: event.id,
+        exportTargetId: target.id,
+        googleEventId: "abc123",
+        exportedVersion: 1,
+        status: "EXPORTED",
+        lastExportedAt: new Date(),
+      },
+    });
+    revoke.mockReset();
+    return target.id;
+  }
+
+  const disconnectNow = (deleteCalendar: boolean) =>
+    disconnect(dorId, { deleteCalendar }, { apiFor: () => google, revoke });
+
+  it("export again queues the calendar check and the full export", async () => {
+    const targetId = await exported();
+    await prisma.exportJob.deleteMany();
+    expect(await exportAgain(dorId)).toEqual({ ok: true });
+    expect(await jobTypes()).toEqual(["CREATE_CALENDAR"]);
+    expect((await getExportStatus(dorId)).canDeleteCalendar).toBe(true);
+
+    // After the calendar was deleted in Google: back to active, to create it again.
+    await prisma.googleExportTarget.update({
+      where: { id: targetId },
+      data: { status: "NEEDS_ACTION", lastError: "calendarDeleted" },
+    });
+    expect(await exportNeedsAction(dorId)).toBe(true);
+    expect((await getExportStatus(dorId)).canDeleteCalendar).toBe(false);
+    expect(await exportAgain(dorId)).toEqual({ ok: true });
+    expect(await targetOf()).toMatchObject({ status: "ACTIVE", lastError: null });
+    expect(await exportNeedsAction(dorId)).toBe(false);
+  });
+
+  it("export again waits for signing in again, and needs a connection", async () => {
+    expect(await exportAgain(dorId)).toEqual({ ok: false, reason: "notConnected" });
+    await exported();
+    await prisma.googleConnection.updateMany({ data: { status: "NEEDS_REAUTH" } });
+    expect(await exportNeedsAction(dorId)).toBe(true);
+    expect(await exportAgain(dorId)).toEqual({ ok: false, reason: "needsReauth" });
+  });
+
+  it("disconnecting and keeping the calendar: access revoked, the calendar left as is", async () => {
+    await exported();
+    expect(await disconnectNow(false)).toEqual({ ok: true });
+    expect(revoke).toHaveBeenCalledWith("refresh-1");
+    expect(google.calendars.has(calendarId)).toBe(true);
+    expect(await targetOf()).toMatchObject({
+      status: "DISABLED",
+      googleCalendarId: calendarId,
+      connection: { status: "DISCONNECTED", encryptedRefreshToken: null },
+    });
+    expect(await prisma.exportJob.count()).toBe(0);
+    expect(await prisma.eventExportMapping.count()).toBe(1);
+    expect((await getExportStatus(dorId)).state).toBe("notConnected");
+    expect(await exportAgain(dorId)).toEqual({ ok: false, reason: "notConnected" });
+    expect(await disconnectNow(false)).toEqual({ ok: false, reason: "notConnected" });
+
+    // Connecting the same account again picks the kept calendar up.
+    await saveConnection(dorId, access());
+    expect(await targetOf()).toMatchObject({ status: "ACTIVE", googleCalendarId: calendarId });
+  });
+
+  it("disconnecting and deleting the calendar", async () => {
+    await exported();
+    expect(await disconnectNow(true)).toEqual({ ok: true });
+    expect(google.calendars.size).toBe(0);
+    expect(revoke).toHaveBeenCalled();
+    expect(await targetOf()).toMatchObject({ status: "DISABLED", googleCalendarId: null });
+    expect(await prisma.eventExportMapping.count()).toBe(0);
+  });
+
+  it("a calendar already deleted in Google, or a failed revoke, doesn't stop a disconnect", async () => {
+    await exported();
+    google.deleteCalendarByHand();
+    revoke.mockRejectedValueOnce(new GoogleApiError(400, "invalid_token"));
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await disconnectNow(true)).toEqual({ ok: true });
+    expect(errors).toHaveBeenCalledWith(expect.any(String), "google:400 invalid_token");
+    errors.mockRestore();
+    expect((await targetOf()).connection.status).toBe("DISCONNECTED");
+  });
+
+  it("a calendar that couldn't be deleted leaves the export connected", async () => {
+    await exported();
+    google.failNext("deleteCalendar", 503, "backendError");
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await disconnectNow(true)).toEqual({ ok: false, reason: "deleteFailed" });
+    errors.mockRestore();
+    expect(revoke).not.toHaveBeenCalled();
+    expect(await targetOf()).toMatchObject({ status: "ACTIVE", connection: { status: "ACTIVE" } });
+  });
+
+  it("without access, the calendar can't be deleted, but disconnecting still works", async () => {
+    await exported();
+    await prisma.googleConnection.updateMany({ data: { status: "NEEDS_REAUTH" } });
+    expect(await disconnectNow(true)).toEqual({ ok: false, reason: "needsReauth" });
+    expect(await disconnectNow(false)).toEqual({ ok: true });
   });
 });
 

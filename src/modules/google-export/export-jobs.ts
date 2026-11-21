@@ -82,28 +82,30 @@ export async function handleExportJob(job: ExportJob, apiFor: ApiFor): Promise<J
 async function failed(target: Target, api: GoogleCalendarApi, error: GoogleApiError) {
   let kind = failureKind(error);
   let message = error.message;
+  const stillActive = { id: target.id, status: "ACTIVE" as const };
   if (kind === "notFound") {
     // A 404 that wasn't expected: most likely the calendar was deleted in Google.
     const exists = target.googleCalendarId
       ? await api.calendarExists(target.googleCalendarId).catch(() => true)
       : true;
     if (!exists) {
-      await prisma.googleExportTarget.update({
-        where: { id: target.id },
+      await prisma.googleExportTarget.updateMany({
+        where: stillActive,
         data: { status: "NEEDS_ACTION", lastError: CALENDAR_DELETED },
       });
       return { ok: false, error: CALENDAR_DELETED, retry: false } as const;
     }
     kind = "temporary";
   }
+  // Only while still connected: the user may have disconnected while the job ran.
   if (kind === "reauth") {
-    await prisma.googleConnection.update({
-      where: { id: target.connectionId },
+    await prisma.googleConnection.updateMany({
+      where: { id: target.connectionId, status: "ACTIVE" },
       data: { status: "NEEDS_REAUTH", lastError: message },
     });
   } else {
-    await prisma.googleExportTarget.update({
-      where: { id: target.id },
+    await prisma.googleExportTarget.updateMany({
+      where: stillActive,
       data: { lastError: message },
     });
   }

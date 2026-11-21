@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createEvent, deleteEvent, updateEvent } from "@/modules/events/events";
 import { type EventInput, validateEvent } from "@/modules/events/validation";
 import { CALENDAR_DELETED, runExportJobs } from "@/modules/google-export/export-jobs";
+import { GoogleApiError } from "@/modules/google-export/google-api";
 import { googleEventId } from "@/modules/google-export/mapping";
 import { enqueueTargetJob } from "@/modules/jobs/outbox";
 import { FakeGoogle } from "./fake-google";
@@ -373,6 +374,24 @@ describe("failures", () => {
       status: "ACTIVE",
       connection: { status: "ACTIVE" },
     });
+  });
+
+  it("a job that fails after the user disconnected leaves the export disconnected", async () => {
+    const targetId = await connected();
+    await create();
+    // While the job runs, the user disconnects and deletes the calendar.
+    const api = Object.assign(Object.create(google) as FakeGoogle, {
+      insertEvent: async () => {
+        await prisma.googleExportTarget.update({
+          where: { id: targetId },
+          data: { status: "DISABLED" },
+        });
+        google.deleteCalendarByHand();
+        throw new GoogleApiError(404, "notFound");
+      },
+    });
+    await runExportJobs(() => api);
+    expect(await target(targetId)).toMatchObject({ status: "DISABLED", lastError: null });
   });
 
   it("a job for a calendar no longer exported to is dropped without calling Google", async () => {

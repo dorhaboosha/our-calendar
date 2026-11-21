@@ -17,7 +17,12 @@ type Stored = Omit<GoogleEvent | GoogleInstance, "status"> & {
 type Calendar = NewCalendar & { events: Map<string, Stored> };
 
 type Operation =
-  "createCalendar" | "calendarExists" | "insertEvent" | "updateEvent" | "deleteEvent";
+  | "createCalendar"
+  | "deleteCalendar"
+  | "calendarExists"
+  | "insertEvent"
+  | "updateEvent"
+  | "deleteEvent";
 
 export class FakeGoogle implements GoogleCalendarApi {
   calendars = new Map<string, Calendar>();
@@ -56,6 +61,12 @@ export class FakeGoogle implements GoogleCalendarApi {
     const id = `calendar-${this.nextCalendar++}@group.calendar.google.com`;
     this.calendars.set(id, { ...calendar, events: new Map() });
     return { id };
+  }
+
+  async deleteCalendar(calendarId: string) {
+    this.call("deleteCalendar", calendarId);
+    this.calendar(calendarId);
+    this.calendars.delete(calendarId);
   }
 
   async calendarExists(calendarId: string) {

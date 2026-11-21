@@ -53,6 +53,9 @@ export function googleCalendarApi(
       const created = (await call("POST", "/calendars", newCalendar)) as { id: string };
       return { id: created.id };
     },
+    async deleteCalendar(calendarId) {
+      await call("DELETE", calendar(calendarId));
+    },
     async calendarExists(calendarId) {
       try {
         await call("GET", calendar(calendarId));

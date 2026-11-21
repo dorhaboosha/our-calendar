@@ -1,4 +1,5 @@
-import { Box, HStack, Heading, Text } from "@chakra-ui/react";
+import { Box, HStack, Heading, Link, Text } from "@chakra-ui/react";
+import NextLink from "next/link";
 import { getTranslations } from "next-intl/server";
 import { NavLinks } from "./nav-links";
 import { SignOutButton } from "./sign-out-button";
@@ -6,9 +7,11 @@ import { SignOutButton } from "./sign-out-button";
 type Props = {
   displayName: string;
   color: string;
+  /** The user's Google export waits for them (access revoked, or calendar deleted). */
+  exportNeedsAction: boolean;
 };
 
-export async function AppHeader({ displayName, color }: Props) {
+export async function AppHeader({ displayName, color, exportNeedsAction }: Props) {
   const t = await getTranslations();
 
   return (
@@ -24,7 +27,12 @@ export async function AppHeader({ displayName, color }: Props) {
             ]}
           />
         </HStack>
-        <HStack gap="3">
+        <HStack gap="3" wrap="wrap">
+          {exportNeedsAction && (
+            <Link asChild color="fg.error" fontWeight="medium">
+              <NextLink href="/settings#google-export">{t("header.exportNeedsAction")}</NextLink>
+            </Link>
+          )}
           <HStack gap="2">
             <Box w="3" h="3" borderRadius="full" bg={color} aria-hidden />
             <Text>{t("header.signedInAs", { name: displayName })}</Text>

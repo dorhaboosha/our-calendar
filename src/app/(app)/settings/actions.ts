@@ -3,6 +3,11 @@
 import { refresh } from "next/cache";
 import { getTranslations } from "next-intl/server";
 import { requireUser } from "@/modules/auth/current-user";
+import {
+  type ExportActionResult,
+  disconnect,
+  exportAgain,
+} from "@/modules/google-export/connection";
 import type { ColorCheck } from "@/modules/users/colors";
 import { updateSharedColor, updateUserColor } from "@/modules/users/users";
 
@@ -46,4 +51,39 @@ async function toResult(check: ColorCheck): Promise<SaveColorResult> {
     return { ok: false, message: t("settings.errors.tooSimilar", { other: check.conflictWith }) };
   }
   return { ok: false, message: t(`settings.errors.${check.reason}`) };
+}
+
+export type GoogleActionResult = { ok: boolean; message: string };
+
+/**
+ * "Export again" of the signed-in user's own export (after the calendar was deleted in
+ * Google, it is created again first). The user comes from the session, never the request.
+ */
+export async function exportToGoogleAgain(): Promise<GoogleActionResult> {
+  const user = await requireUser();
+  return googleResult(await exportAgain(user.id), "exportAgainDone");
+}
+
+/** Disconnects the signed-in user's export, deleting the calendar in Google or not. */
+export async function disconnectGoogle(deleteCalendar: unknown): Promise<GoogleActionResult> {
+  const user = await requireUser();
+  if (typeof deleteCalendar !== "boolean") {
+    const t = await getTranslations("settings.googleExport");
+    return { ok: false, message: t("actions.errors.invalid") };
+  }
+  return googleResult(
+    await disconnect(user.id, { deleteCalendar }),
+    deleteCalendar ? "disconnectedDeleted" : "disconnectedKept",
+  );
+}
+
+async function googleResult(
+  result: ExportActionResult,
+  done: "exportAgainDone" | "disconnectedDeleted" | "disconnectedKept",
+): Promise<GoogleActionResult> {
+  const t = await getTranslations("settings.googleExport");
+  if (!result.ok) return { ok: false, message: t(`actions.errors.${result.reason}`) };
+  // Re-render the page so the export's state (and the header) are current.
+  refresh();
+  return { ok: true, message: t(`actions.${done}`) };
 }

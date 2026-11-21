@@ -105,9 +105,12 @@ test.describe("signed in", () => {
     const eventsLoaded = page.waitForResponse((response) => response.url().includes("/api/events"));
     await page.goto("/");
     await eventsLoaded;
-    // Retried: a click before React has hydrated the button does nothing.
+    // Retried: a click before React has hydrated the button does nothing. A click that
+    // worked but is slow to land on the login page (a loaded machine) isn't repeated.
     await expect(async () => {
-      await page.getByRole("button", { name: "התנתקות" }).click({ timeout: 1000 });
+      if (!/\/login$/.test(page.url())) {
+        await page.getByRole("button", { name: "התנתקות" }).click({ timeout: 1000 });
+      }
       await expect(page).toHaveURL(/\/login$/, { timeout: 2000 });
     }).toPass();
 
