@@ -112,11 +112,17 @@ async function failed(target: Target, api: GoogleCalendarApi, error: GoogleApiEr
 }
 
 /**
- * Creates the calendar, then queues the export of every event. If the calendar was
- * created but saving its id failed, a retry creates a second one: the app may not list
- * the user's calendars to find it, and the chance is small.
+ * Creates the calendar, then queues the export of every event. A calendar created
+ * before (connecting again) is kept if it is still there; if it was deleted, a new one
+ * starts empty. If the calendar was created but saving its id failed, a retry creates a
+ * second one: the app may not list the user's calendars to find it, and the chance is
+ * small.
  */
 async function createCalendar(target: Target, api: GoogleCalendarApi) {
+  if (target.googleCalendarId && !(await api.calendarExists(target.googleCalendarId))) {
+    await prisma.eventExportMapping.deleteMany({ where: { exportTargetId: target.id } });
+    target.googleCalendarId = null;
+  }
   if (!target.googleCalendarId) {
     const t = await translator();
     const { id } = await api.createCalendar({

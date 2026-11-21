@@ -147,6 +147,24 @@ describe("exporting", () => {
     expect(await jobs()).toEqual([]);
   });
 
+  it("connecting again keeps the calendar, or makes a new one if it was deleted", async () => {
+    const targetId = await connected();
+    const { googleId } = await create();
+    await runAll();
+    await enqueueTargetJob(prisma, targetId, "CREATE_CALENDAR");
+    await runAll();
+    expect(google.calendars.size).toBe(1);
+    expect(google.calls.filter((call) => call === "createCalendar")).toHaveLength(1);
+
+    google.deleteCalendarByHand();
+    await enqueueTargetJob(prisma, targetId, "CREATE_CALENDAR");
+    await runAll();
+    expect(google.only().events.get(googleId)).toMatchObject({ status: "confirmed" });
+    expect(await target(targetId)).toMatchObject({
+      googleCalendarId: expect.stringContaining("calendar-2"),
+    });
+  });
+
   it("changes and deletions in the app reach Google", async () => {
     await connected();
     const { id, googleId } = await create();
