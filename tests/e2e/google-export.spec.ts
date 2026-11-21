@@ -60,15 +60,30 @@ test("coming back from Google shows the result once", async ({ page, signInAs })
   await expect(section(page).getByRole("alert")).toHaveCount(0);
 });
 
-test("export again queues a full export", async ({ page, signInAs }) => {
+/** The job left after a run, and what it says (the dummy token makes every run fail). */
+const failedJobs = async () =>
+  (await db.query('SELECT type, status, "lastError" FROM "export_job"')).rows;
+
+test("export again runs a full export right after the response", async ({ page, signInAs }) => {
   const dor = await signInAs("dor");
   await connectInDatabase(dor.id);
   await page.goto("/settings");
   await section(page).getByRole("button", { name: "ייצא מחדש ל-Google" }).click();
   await expect(section(page).getByRole("status")).toHaveText(/הייצוא המלא התחיל/);
-  const { rows } = await db.query('SELECT type FROM "export_job"');
-  expect(rows).toEqual([{ type: "CREATE_CALENDAR" }]);
   await expect(section(page).getByText("מחובר. ממתין לייצוא.")).toBeVisible();
+
+  // The job ran after the response: the dummy token can't be read, which counts as
+  // access that has to be granted again.
+  await expect.poll(() => statusOf(dor.id)).toBe("NEEDS_REAUTH");
+  expect(await failedJobs()).toEqual([
+    {
+      type: "CREATE_CALENDAR",
+      status: "FAILED",
+      lastError: "google:401 token_unreadable (reauth)",
+    },
+  ]);
+  await page.reload();
+  await expect(page.getByRole("link", { name: "ייצוא ל-Google: נדרשת פעולה" })).toBeVisible();
 });
 
 test("disconnecting: choose what happens to the calendar, or cancel", async ({
@@ -118,6 +133,8 @@ test("a deleted calendar: the header points to settings, where it is created aga
   await export_.getByRole("button", { name: "צור את היומן מחדש" }).click();
   await expect(export_.getByText("מחובר. ממתין לייצוא.")).toBeVisible();
   await expect(page.getByRole("link", { name: /נדרשת פעולה/ })).toHaveCount(0);
+  // Then the job runs, and fails on the dummy token (see the test above).
+  await expect.poll(() => statusOf(dor.id)).toBe("NEEDS_REAUTH");
 });
 
 test("access to Google revoked: connect again, and the calendar can't be deleted", async ({

@@ -13,6 +13,7 @@ import {
   updateEvent,
 } from "@/modules/events/events";
 import { REPEAT_SCOPES } from "@/modules/events/recurrence";
+import { exportSoon } from "@/modules/google-export/trigger";
 import { type EventField, validateEvent } from "@/modules/events/validation";
 
 // Create, edit and delete events. Both users may change any event; the acting user
@@ -41,7 +42,7 @@ export async function createEventAction(input: unknown): Promise<EventActionResu
   const validation = validateEvent(input);
   if (!validation.ok) return fieldErrors(validation.errors);
   const result = await createEvent(validation.draft, user.id);
-  return result.ok ? result : failure(result);
+  return saved(result);
 }
 
 /**
@@ -62,7 +63,7 @@ export async function updateEventAction(
   const validation = validateEvent(input);
   if (!validation.ok) return fieldErrors(validation.errors);
   const result = await updateEvent(id, expectedVersion, validation.draft, user.id, occurrence);
-  return result.ok ? result : failure(result);
+  return saved(result);
 }
 
 export async function deleteEventAction(
@@ -76,7 +77,14 @@ export async function deleteEventAction(
     return failure({ ok: false, reason: "notFound" });
   }
   const result = await deleteEvent(id, expectedVersion, user.id, occurrence);
-  return result.ok ? result : failure(result);
+  return saved(result);
+}
+
+/** A change was saved: its export runs once the response is sent. */
+function saved<T extends { ok: true }>(result: T | EventFailure) {
+  if (!result.ok) return failure(result);
+  exportSoon();
+  return result;
 }
 
 function isId(value: unknown): value is string {

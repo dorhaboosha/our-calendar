@@ -179,6 +179,22 @@ Before the first deploy:
 On the free plan the service sleeps after 15 minutes without traffic, so the first visit
 after that takes up to a minute. Moving to a paid plan needs no code changes.
 
+### Google export jobs
+
+Exports to Google run in the web server, with no separate worker: right after each
+change (once the response is sent), on page views for retries that came due, and every
+30 minutes from [`export-jobs.yml`](.github/workflows/export-jobs.yml), which calls
+`POST /api/jobs/run` with the shared secret `CRON_SECRET`.
+
+- Set `CRON_SECRET` (at least 32 random characters) both on Render and as a repository
+  secret on GitHub (Settings > Secrets and variables > Actions), with the same value.
+- GitHub turns scheduled workflows off after 60 days without activity in the
+  repository. If that happens, turn it on again under Actions > Export jobs. Until
+  then, exports still run after every change; only the retries of failed ones wait for
+  someone to open the app.
+- Each run wakes the service if it sleeps, so the free plan's 750 hours a month are
+  used faster; every 30 minutes stays within them (every 15 would not).
+
 ### Production
 
 - App: <https://our-calendar-ay05.onrender.com> (the name `our-calendar` was taken on

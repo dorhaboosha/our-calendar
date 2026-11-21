@@ -8,6 +8,7 @@ import {
   disconnect,
   exportAgain,
 } from "@/modules/google-export/connection";
+import { exportSoon } from "@/modules/google-export/trigger";
 import type { ColorCheck } from "@/modules/users/colors";
 import { updateSharedColor, updateUserColor } from "@/modules/users/users";
 
@@ -61,7 +62,9 @@ export type GoogleActionResult = { ok: boolean; message: string };
  */
 export async function exportToGoogleAgain(): Promise<GoogleActionResult> {
   const user = await requireUser();
-  return googleResult(await exportAgain(user.id), "exportAgainDone");
+  const result = await exportAgain(user.id);
+  if (result.ok) exportSoon();
+  return googleResult(result, "exportAgainDone");
 }
 
 /** Disconnects the signed-in user's export, deleting the calendar in Google or not. */

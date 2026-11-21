@@ -9,6 +9,7 @@ import {
 } from "@/modules/google-export/flow-cookie";
 import { GoogleApiError } from "@/modules/google-export/google-api";
 import { exchangeCode, hasCalendarScope } from "@/modules/google-export/oauth";
+import { exportSoon } from "@/modules/google-export/trigger";
 
 /**
  * GET /api/integrations/google/callback
@@ -42,6 +43,8 @@ export async function GET(request: NextRequest) {
     // Google lets the user untick the calendar permission on the consent page.
     if (!hasCalendarScope(access.grantedScopes)) return done("missingScope");
     await saveConnection(user.id, access);
+    // Creates the calendar and exports every event, after the redirect is sent.
+    exportSoon();
   } catch (failure) {
     // Never the token or Google's message: only the status and reason.
     const detail = failure instanceof GoogleApiError ? failure.message : "unexpected";

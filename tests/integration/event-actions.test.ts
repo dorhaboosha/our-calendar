@@ -24,6 +24,9 @@ vi.mock("next-intl/server", async () => {
   };
 });
 
+const exportSoon = vi.fn();
+vi.mock("@/modules/google-export/trigger", () => ({ exportSoon }));
+
 const { createEventAction, updateEventAction, deleteEventAction } =
   await import("@/app/(app)/event-actions");
 
@@ -49,6 +52,7 @@ async function signInAs(configKey: "dor" | "maayan") {
 
 beforeEach(async () => {
   signedIn = null;
+  exportSoon.mockClear();
   await prisma.event.deleteMany();
   await prisma.user.deleteMany();
 });
@@ -123,6 +127,21 @@ describe("event actions", () => {
       ok: false,
       message: messages.events.errors.notFound,
     });
+  });
+
+  it("start the Google export after each saved change, and not after a refused one", async () => {
+    await signInAs("dor");
+    const created = await createEventAction(input);
+    if (!created.ok || !("event" in created)) throw new Error("create failed");
+    expect(exportSoon).toHaveBeenCalledTimes(1);
+    await updateEventAction(created.event.id, 1, { ...input, title: "Dinner out" });
+    await deleteEventAction(created.event.id, 2);
+    expect(exportSoon).toHaveBeenCalledTimes(3);
+
+    await createEventAction({ ...input, title: " " });
+    await updateEventAction(created.event.id, 1, input);
+    await deleteEventAction(created.event.id, 3);
+    expect(exportSoon).toHaveBeenCalledTimes(3);
   });
 
   it("reject a malformed id or version without touching the database", async () => {
