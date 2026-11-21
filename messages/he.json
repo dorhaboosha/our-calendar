@@ -218,6 +218,7 @@
     "SA": "שבת"
   },
   "googleExport": {
-    "ownedTitle": "{owner}: {title}"
+    "ownedTitle": "{owner}: {title}",
+    "calendarDescription": "האירועים של \"היומן שלנו\". את האירועים עורכים באתר: שינויים שנעשים כאן יוחלפו בעדכון הבא."
   }
 }

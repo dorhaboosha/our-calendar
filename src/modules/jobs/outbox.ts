@@ -24,9 +24,15 @@ type Db = Prisma.TransactionClient | typeof prisma;
  * Within the transaction that changed the events: queues an export of each to every
  * active target. A job already queued for an event and target is reset to run now
  * (also one that had failed), instead of adding another. Targets that aren't active
- * get nothing: reconnecting exports everything anyway.
+ * get nothing: reconnecting exports everything anyway. With exportTargetId, only to that
+ * target (a full export of one calendar).
  */
-export async function enqueueEventExports(tx: Db, eventIds: string[], now = new Date()) {
+export async function enqueueEventExports(
+  tx: Db,
+  eventIds: string[],
+  now = new Date(),
+  exportTargetId: string | null = null,
+) {
   if (eventIds.length === 0) return;
   await tx.$executeRaw`
     INSERT INTO "export_job"
@@ -38,6 +44,7 @@ export async function enqueueEventExports(tx: Db, eventIds: string[], now = new 
       JOIN "google_connection" connection ON connection."id" = target."connectionId"
      CROSS JOIN unnest(${eventIds}::text[]) AS event("id")
      WHERE target."status" = 'ACTIVE' AND connection."status" = 'ACTIVE'
+       AND (${exportTargetId}::text IS NULL OR target."id" = ${exportTargetId})
     ON CONFLICT ("exportTargetId", "eventId") WHERE "eventId" IS NOT NULL
     DO UPDATE SET "status" = 'PENDING', "attemptCount" = 0, "nextAttemptAt" = ${now},
                   "lastError" = NULL, "updatedAt" = ${now}`;

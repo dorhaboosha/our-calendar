@@ -122,8 +122,8 @@ model Event {
   updatedAt        DateTime             @updatedAt
   /// Soft delete: kept so the Google export (Phase 4) can delete the exported copy.
   deletedAt        DateTime?
-  /// Goes up by one on every change, including a change to one of its occurrences; the
-  /// export uses it to skip unchanged events.
+  /// Goes up by one on every change, including a change to one of its occurrences; it
+  /// guards against saving over someone else's change, and the export records it.
   version          Int                  @default(1)
   /// A repeating event (a series): its RRULE value without "RRULE:" and without
   /// DTSTART (RFC 5545). The series starts at the event's start, in its time zone; see
@@ -250,7 +250,8 @@ enum ExportMappingStatus {
 }
 
 /// What was last exported of an event to one target: its id in Google and the version
-/// exported, so an export of an unchanged event can be skipped.
+/// exported. Every export job sends the event again (jobs are queued only on changes,
+/// and "export again" must fix edits made by hand in Google), so none is skipped.
 model EventExportMapping {
   id                  String              @id @default(uuid())
   eventId             String
