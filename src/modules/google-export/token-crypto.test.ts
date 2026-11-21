@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { decryptToken, encryptToken, encryptionKey } from "./token-crypto";
 
 const key = randomBytes(32);
@@ -7,6 +7,10 @@ const token = "1//0refresh-token-example";
 const userId = "user-1";
 
 describe("refresh token encryption", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("decrypts what it encrypted, and never stores the token as is", () => {
     const stored = encryptToken(token, userId, key);
     expect(stored).toMatch(/^v1\.[\w-]+\.[\w-]+\.[\w-]+$/);
@@ -41,6 +45,8 @@ describe("refresh token encryption", () => {
   });
 
   it("needs a 32-byte base64 key", () => {
+    // Not set at all (a local .env may have a real key).
+    vi.stubEnv("TOKEN_ENCRYPTION_KEY", undefined);
     expect(encryptionKey(key.toString("base64"))).toEqual(key);
     for (const value of [undefined, "", "replace-me", randomBytes(16).toString("base64")]) {
       expect(() => encryptionKey(value)).toThrow("TOKEN_ENCRYPTION_KEY must be 32 bytes");

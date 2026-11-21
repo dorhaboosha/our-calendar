@@ -211,11 +211,19 @@ export function instanceUpdates(
   context: ExportContext,
   exported: readonly string[],
 ): { updates: InstanceUpdate[]; exported: string[] } {
+  const seriesId = googleEventId(event.id);
   if (!event.rrule) {
-    return { updates: [], exported: [] };
+    // A series that became a one-off: Google may keep its changed occurrences as events
+    // of their own, so they are cancelled there.
+    return {
+      updates: exported.map((start) => ({
+        kind: "cancel",
+        instanceId: instanceId(seriesId, start),
+      })),
+      exported: [],
+    };
   }
   const series = seriesOf(event);
-  const seriesId = googleEventId(event.id);
   const instance = (
     original: Occurrence,
     details: Details,

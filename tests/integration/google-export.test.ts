@@ -3,10 +3,12 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createEvent, deleteEvent, updateEvent } from "@/modules/events/events";
 import { type EventInput, validateEvent } from "@/modules/events/validation";
+import { disconnect } from "@/modules/google-export/connection";
 import { CALENDAR_DELETED, runExportJobs } from "@/modules/google-export/export-jobs";
 import { GoogleApiError } from "@/modules/google-export/google-api";
-import { googleEventId } from "@/modules/google-export/mapping";
+import { googleEventId, nearestColorId } from "@/modules/google-export/mapping";
 import { enqueueTargetJob } from "@/modules/jobs/outbox";
+import { updateSharedColor, updateUserColor } from "@/modules/users/users";
 import { FakeGoogle } from "./fake-google";
 
 // The export against a fake Google: creating the calendar, exporting every event, keeping
@@ -14,19 +16,22 @@ import { FakeGoogle } from "./fake-google";
 // hand in Google, and what each kind of failure does.
 
 let dorId: string;
+let maayanId: string;
 let google: FakeGoogle;
 
 beforeEach(async () => {
   await prisma.event.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.sharedSettings.deleteMany();
   dorId = (await createUser("dor")).id;
-  await createUser("maayan");
+  maayanId = (await createUser("maayan")).id;
   google = new FakeGoogle();
 });
 
 afterAll(async () => {
   await prisma.event.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.sharedSettings.deleteMany();
   await prisma.$disconnect();
 });
 
@@ -47,12 +52,12 @@ async function runAll(minutesLater = 0) {
   throw new Error("Jobs kept coming");
 }
 
-/** Dor connects the export: the connection, its target, and the job creating the calendar. */
-async function connect() {
+/** A user connects the export: the connection, its target, and the job creating the calendar. */
+async function connect(userId = dorId) {
   const connection = await prisma.googleConnection.create({
     data: {
-      userId: dorId,
-      googleAccountId: "sub-dor",
+      userId,
+      googleAccountId: `sub-${userId}`,
       status: "ACTIVE",
       encryptedRefreshToken: "v1.iv.tag.ciphertext",
       grantedScopes: "https://www.googleapis.com/auth/calendar.app.created",
@@ -404,6 +409,168 @@ describe("failures", () => {
     google.calls = [];
     await runAll();
     expect(google.calls).toEqual([]);
+    expect(await jobs()).toEqual([]);
+  });
+});
+
+describe("edge cases", () => {
+  it("an edit while its export runs is exported right after", async () => {
+    await connected();
+    const { id, googleId } = await create();
+    // The other user saves a new title while Google is creating the event.
+    const api = Object.assign(Object.create(google) as FakeGoogle, {
+      insertEvent: async (calendarId: string, event: Parameters<FakeGoogle["insertEvent"]>[1]) => {
+        await updateEvent(id, 1, draft({ title: "ארוחת ערב מאוחרת" }), maayanId);
+        await google.insertEvent(calendarId, event);
+      },
+    });
+    await runExportJobs(() => api);
+    expect(google.event(googleId)).toMatchObject({ summary: "ארוחת ערב" });
+    expect(await jobs()).toEqual([expect.objectContaining({ status: "PENDING" })]);
+
+    await runAll();
+    expect(google.event(googleId)).toMatchObject({
+      summary: "ארוחת ערב מאוחרת",
+      extendedProperties: { private: { version: "2" } },
+    });
+    expect(await jobs()).toEqual([]);
+  });
+
+  it("a series that becomes a one-off leaves no occurrences behind in Google", async () => {
+    await connected();
+    const series = await create({ repeat: { frequency: "daily", end: "never" } });
+    await updateEvent(
+      series.id,
+      1,
+      draft({ title: "מאוחר", startDate: "2026-11-06", endDate: "2026-11-06", repeat: undefined }),
+      dorId,
+      { scope: "this", originalStart: "2026-11-06T17:00:00.000Z" },
+    );
+    await runAll();
+    const sixth = `${series.googleId}_20261106T170000Z`;
+    expect(google.event(sixth)).toMatchObject({ summary: "מאוחר", status: "confirmed" });
+
+    await updateEvent(series.id, await version(series.id), draft(), dorId);
+    await runAll();
+    const master = google.event(series.googleId)!;
+    expect(master).toMatchObject({ summary: "ארוחת ערב", status: "confirmed" });
+    expect(master.recurrence ?? []).toEqual([]);
+    expect(google.event(sixth)).toMatchObject({ status: "cancelled" });
+    expect((await prisma.eventExportMapping.findFirstOrThrow()).exportedOccurrences).toEqual([]);
+
+    // And back into a series: one repeating event again.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({ repeat: { frequency: "weekly", weekdays: ["TH"], end: "never" } }),
+      dorId,
+    );
+    await runAll();
+    expect(google.event(series.googleId)).toMatchObject({
+      recurrence: [expect.stringContaining("FREQ=WEEKLY")],
+      status: "confirmed",
+    });
+    expect(await jobs()).toEqual([]);
+  });
+
+  it("this and the following ones: the series ends, a new one starts, nothing is left over", async () => {
+    await connected();
+    const series = await create({ repeat: { frequency: "daily", end: "never" } });
+    // A changed occurrence after the point where the series is split.
+    await updateEvent(
+      series.id,
+      1,
+      draft({ title: "מאוחר", startDate: "2026-11-09", endDate: "2026-11-09", repeat: undefined }),
+      dorId,
+      { scope: "this", originalStart: "2026-11-09T17:00:00.000Z" },
+    );
+    await runAll();
+
+    const split = await updateEvent(
+      series.id,
+      2,
+      draft({
+        title: "ארוחת ערב חדשה",
+        startDate: "2026-11-08",
+        endDate: "2026-11-08",
+        repeat: { frequency: "daily", end: "never" },
+      }),
+      dorId,
+      { scope: "following", originalStart: "2026-11-08T17:00:00.000Z" },
+    );
+    if (!split.ok) throw new Error(split.reason);
+    await runAll();
+
+    expect(google.event(series.googleId)).toMatchObject({
+      summary: "ארוחת ערב",
+      recurrence: [expect.stringMatching(/^RRULE:FREQ=DAILY;UNTIL=/)],
+    });
+    // The original series' changed occurrence on the 9th is gone from Google.
+    expect(google.event(`${series.googleId}_20261109T170000Z`)).toMatchObject({
+      status: "cancelled",
+    });
+    expect(google.event(googleEventId(split.event.id))).toMatchObject({
+      summary: "ארוחת ערב חדשה",
+      recurrence: ["RRULE:FREQ=DAILY"],
+      start: { dateTime: "2026-11-08T19:00:00+02:00" },
+    });
+    expect(await jobs()).toEqual([]);
+  });
+
+  it("a new color in settings reaches the owner's events in Google, and only theirs", async () => {
+    await connected();
+    const mine = await create({ owner: "dor", category: "personal" });
+    const hers = await create({ owner: "maayan", category: "personal" });
+    const shared = await create();
+    await runAll();
+    const hersBefore = google.event(hers.googleId)!.colorId;
+
+    google.calls = [];
+    expect(await updateUserColor(dorId, "dor", "#b45309", "משותף")).toMatchObject({ ok: true });
+    await runAll();
+    expect(google.event(mine.googleId)).toMatchObject({ colorId: nearestColorId("#b45309") });
+    expect(google.calls).toEqual([`updateEvent ${mine.googleId}`]);
+
+    google.calls = [];
+    expect(await updateSharedColor("#0e7490")).toMatchObject({ ok: true });
+    await runAll();
+    expect(google.event(shared.googleId)).toMatchObject({ colorId: nearestColorId("#0e7490") });
+    expect(google.calls).toEqual([`updateEvent ${shared.googleId}`]);
+
+    // The same color again changes nothing.
+    google.calls = [];
+    await updateUserColor(dorId, "dor", "#b45309", "משותף");
+    await updateSharedColor("#0e7490");
+    await runAll();
+    expect(google.calls).toEqual([]);
+    expect(google.event(hers.googleId)!.colorId).toBe(hersBefore);
+  });
+
+  it("both connected: each gets every event, and one disconnecting leaves the other", async () => {
+    const googles = new Map([
+      [dorId, new FakeGoogle()],
+      [maayanId, new FakeGoogle()],
+    ]);
+    const apiFor = (connection: { userId: string }) => googles.get(connection.userId)!;
+    const runBoth = async () => {
+      while ((await runExportJobs(apiFor)) > 0);
+    };
+    await connect(dorId);
+    await connect(maayanId);
+    await runBoth();
+    const { id, googleId } = await create();
+    await runBoth();
+    for (const fake of googles.values()) {
+      expect(fake.event(googleId)).toMatchObject({ summary: "ארוחת ערב", status: "confirmed" });
+    }
+
+    expect(
+      await disconnect(maayanId, { deleteCalendar: false }, { apiFor, revoke: async () => {} }),
+    ).toMatchObject({ ok: true });
+    await updateEvent(id, 1, draft({ title: "ארוחת ערב אצל ההורים" }), dorId);
+    await runBoth();
+    expect(googles.get(dorId)!.event(googleId)).toMatchObject({ summary: "ארוחת ערב אצל ההורים" });
+    expect(googles.get(maayanId)!.event(googleId)).toMatchObject({ summary: "ארוחת ערב" });
     expect(await jobs()).toEqual([]);
   });
 });

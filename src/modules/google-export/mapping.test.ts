@@ -158,6 +158,16 @@ describe("a series' occurrences in Google", () => {
     expect(updates(daily)).toEqual({ updates: [], exported: [] });
   });
 
+  it("a series that became a one-off cancels the occurrences it had changed", () => {
+    expect(updates(dentist, ["2026-11-06T08:00:00.000Z", "2026-11-07"])).toEqual({
+      updates: [
+        { kind: "cancel", instanceId: `${GOOGLE_ID}_20261106T080000Z` },
+        { kind: "cancel", instanceId: `${GOOGLE_ID}_20261107` },
+      ],
+      exported: [],
+    });
+  });
+
   it("a changed occurrence keeps the series' other details", () => {
     const changed = {
       ...daily,

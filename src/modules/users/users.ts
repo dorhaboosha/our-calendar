@@ -1,6 +1,8 @@
 import "server-only";
 import { appConfig } from "@/config/app.config";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { enqueueEventExports } from "@/modules/jobs/outbox";
 import { checkCalendarColor, type ColorCheck } from "./colors";
 
 /** The one row of the shared_settings table. */
@@ -58,7 +60,10 @@ export async function userCalendarColors(): Promise<Record<string, string>> {
   return Object.fromEntries(users.map((user) => [user.displayName, user.color]));
 }
 
-/** Validates and saves a user's color. The old color is kept when the check fails. */
+/**
+ * Validates and saves a user's color. The old color is kept when the check fails. A new
+ * color exports the user's events again, so their color in Google follows.
+ */
 export async function updateUserColor(
   userId: string,
   configKey: string,
@@ -67,7 +72,16 @@ export async function updateUserColor(
 ): Promise<ColorCheck> {
   const check = checkCalendarColor(color, await otherCalendarColors(configKey, sharedLabel));
   if (check.ok) {
-    await prisma.user.update({ where: { id: userId }, data: { color: check.color } });
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { color: true },
+      });
+      await tx.user.update({ where: { id: userId }, data: { color: check.color } });
+      if (before.color !== check.color) {
+        await exportEventsOf(tx, { ownerType: "USER", ownerUserId: userId });
+      }
+    });
   }
   return check;
 }
@@ -79,11 +93,32 @@ export async function updateUserColor(
 export async function updateSharedColor(color: string): Promise<ColorCheck> {
   const check = checkCalendarColor(color, await userCalendarColors());
   if (check.ok) {
-    await prisma.sharedSettings.upsert({
-      where: { id: SHARED_SETTINGS_ID },
-      create: { id: SHARED_SETTINGS_ID, sharedColor: check.color },
-      update: { sharedColor: check.color },
+    await prisma.$transaction(async (tx) => {
+      const before = await tx.sharedSettings.findUnique({
+        where: { id: SHARED_SETTINGS_ID },
+        select: { sharedColor: true },
+      });
+      await tx.sharedSettings.upsert({
+        where: { id: SHARED_SETTINGS_ID },
+        create: { id: SHARED_SETTINGS_ID, sharedColor: check.color },
+        update: { sharedColor: check.color },
+      });
+      if (before?.sharedColor !== check.color) {
+        await exportEventsOf(tx, { ownerType: "SHARED" });
+      }
     });
   }
   return check;
+}
+
+/** Queues the export of the events shown in a color that changed, deleted ones aside. */
+async function exportEventsOf(tx: Prisma.TransactionClient, where: Prisma.EventWhereInput) {
+  const events = await tx.event.findMany({
+    where: { ...where, deletedAt: null },
+    select: { id: true },
+  });
+  await enqueueEventExports(
+    tx,
+    events.map((event) => event.id),
+  );
 }
