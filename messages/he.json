@@ -216,5 +216,8 @@
     "TH": "חמישי",
     "FR": "שישי",
     "SA": "שבת"
+  },
+  "googleExport": {
+    "ownedTitle": "{owner}: {title}"
   }
 }
