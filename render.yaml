@@ -38,3 +38,15 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
+      # Google export: <BETTER_AUTH_URL>/api/integrations/google/callback, also registered
+      # as a redirect URI of the production OAuth client.
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false
+      # 32 random bytes, base64. Encrypts the export's refresh tokens; changing it means
+      # everyone connects the export again.
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      # At least 32 random characters; the same value as the CRON_SECRET repository
+      # secret on GitHub (used by .github/workflows/export-jobs.yml).
+      - key: CRON_SECRET
+        sync: false
