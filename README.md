@@ -138,9 +138,9 @@ fail on any browser console error.
   are tagged `@mobile`.
 - [`tests/e2e/accessibility.spec.ts`](tests/e2e/accessibility.spec.ts) scans every
   screen and dialog with axe-core (WCAG 2.1 A and AA).
-- `E2E_SCREENSHOTS=<folder> npm run test:e2e -- calendar repeating-events` saves
-  screenshots of the calendar views and of the repeat fields on a phone, to check them
-  by eye.
+- `E2E_SCREENSHOTS=<folder> npm run test:e2e -- calendar repeating-events google-export`
+  saves screenshots of the calendar views, the repeat fields and the Google export
+  section on a phone, to check them by eye.
 
 Other checks: `npm run lint`, `npm run typecheck`, `npm run format:check`
 (`npm run format` fixes formatting).

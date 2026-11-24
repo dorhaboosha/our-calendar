@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { expect, insertEvent, test } from "./fixtures";
+import { connectExportInDatabase, db, expect, insertEvent, test } from "./fixtures";
 
 // Automated accessibility checks (axe-core, WCAG 2.1 A and AA) on every screen and
 // dialog. They catch contrast, names, labels and ARIA mistakes; keyboard use and
@@ -149,5 +150,82 @@ test.describe("signed in", () => {
     await page.goto("/settings");
     await page.waitForLoadState("networkidle");
     expect(await violations(page)).toEqual([]);
+  });
+
+  test.describe("the Google export", () => {
+    const exportSection = (page: Page) =>
+      page.getByRole("region", { name: "ייצוא ל-Google Calendar" });
+    const needsAction = (page: Page) =>
+      page.getByRole("link", { name: "ייצוא ל-Google: נדרשת פעולה" });
+    const open = async (page: Page, path = "/settings") => {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+    };
+    /** Dor's export, in the state given. */
+    const exportAs = async (options: Parameters<typeof connectExportInDatabase>[1]) => {
+      const { rows } = await db.query(`SELECT id FROM "user" WHERE "configKey" = 'dor'`);
+      return connectExportInDatabase(rows[0].id, options);
+    };
+    const addJob = (targetId: string, status: string, nextAttemptAt: string) =>
+      db.query(
+        `INSERT INTO "export_job" (id, type, "exportTargetId", status, "attemptCount",
+           "nextAttemptAt", "updatedAt")
+         VALUES ($1, 'FULL_RECONCILE', $2, $3, 0, $4, now())`,
+        [randomUUID(), targetId, status, nextAttemptAt],
+      );
+
+    test("up to date, with a failed export, and disconnecting", async ({ page }) => {
+      const targetId = await exportAs({ lastExportAt: "2026-11-05T08:30:00+02:00" });
+      await addJob(targetId, "FAILED", "2026-11-05T08:30:00+02:00");
+      await open(page);
+      const section = exportSection(page);
+      await expect(section.getByText("מחובר. היומן ב-Google מעודכן.")).toBeVisible();
+      await expect(section.getByText("אירוע אחד לא יוצא בגלל שגיאה.")).toBeVisible();
+      expect(await violations(page), "up to date, one failed").toEqual([]);
+
+      await section.getByRole("button", { name: "ניתוק הייצוא" }).click();
+      await expect(section.getByRole("radio")).toHaveCount(2);
+      expect(await violations(page), "disconnecting").toEqual([]);
+    });
+
+    test("waiting, and a deleted calendar with the header's link", async ({ page }) => {
+      // A job not yet due, so the page doesn't run it.
+      const targetId = await exportAs({});
+      await addJob(targetId, "PENDING", "2026-12-31T00:00:00Z");
+      await open(page);
+      await expect(exportSection(page).getByText("מחובר. ממתין לייצוא.")).toBeVisible();
+      expect(await violations(page), "waiting").toEqual([]);
+
+      await db.query(`UPDATE "google_export_target" SET status = 'NEEDS_ACTION'`);
+      await open(page);
+      await expect(needsAction(page)).toBeVisible();
+      await expect(
+        exportSection(page).getByRole("button", { name: "צור את היומן מחדש" }),
+      ).toBeVisible();
+      expect(await violations(page), "calendar deleted").toEqual([]);
+      await open(page, "/");
+      await expect(needsAction(page)).toBeVisible();
+      expect(await violations(page), "the calendar page").toEqual([]);
+    });
+
+    test("access revoked: connecting again, and disconnecting", async ({ page }) => {
+      await exportAs({ connection: "NEEDS_REAUTH" });
+      await open(page);
+      const section = exportSection(page);
+      await expect(section.getByRole("link", { name: "התחברות מחדש ל-Google" })).toBeVisible();
+      expect(await violations(page), "access revoked").toEqual([]);
+      await section.getByRole("button", { name: "ניתוק הייצוא" }).click();
+      await expect(section.getByText(/יישאר ב-Google, אם כבר נוצר/)).toBeVisible();
+      expect(await violations(page), "disconnecting without access").toEqual([]);
+    });
+
+    test("coming back from Google: a failure, and a success", async ({ page }) => {
+      await open(page, "/settings?google=failed");
+      await expect(exportSection(page).getByRole("alert")).toBeVisible();
+      expect(await violations(page), "connecting failed").toEqual([]);
+      await open(page, "/settings?google=connected");
+      await expect(exportSection(page).getByRole("status")).toBeVisible();
+      expect(await violations(page), "connected").toEqual([]);
+    });
   });
 });

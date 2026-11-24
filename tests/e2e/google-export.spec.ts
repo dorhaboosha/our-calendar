@@ -1,34 +1,10 @@
-import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { db, expect, test } from "./fixtures";
+import { connectExportInDatabase, db, expect, test } from "./fixtures";
 
 // The Google export section of the settings page, and the header's pointer to it. No
 // call reaches Google: connecting is only a link, and the stored token is a dummy.
 
 const section = (page: Page) => page.getByRole("region", { name: "ייצוא ל-Google Calendar" });
-
-/** A connection with its target, straight in the database. */
-async function connectInDatabase(
-  userId: string,
-  {
-    connection = "ACTIVE",
-    target = "ACTIVE",
-    calendarId = "calendar-1@group.calendar.google.com",
-  }: { connection?: string; target?: string; calendarId?: string | null } = {},
-) {
-  const connectionId = randomUUID();
-  await db.query(
-    `INSERT INTO "google_connection" (id, "userId", "googleAccountId", status,
-       "encryptedRefreshToken", "grantedScopes", "updatedAt")
-     VALUES ($1, $2, 'sub-1', $3, 'v1.dummy.dummy.dummy', 'openid', now())`,
-    [connectionId, userId, connection],
-  );
-  await db.query(
-    `INSERT INTO "google_export_target" (id, "connectionId", "googleCalendarId", status, "updatedAt")
-     VALUES ($1, $2, $3, $4, now())`,
-    [randomUUID(), connectionId, calendarId, target],
-  );
-}
 
 const statusOf = async (userId: string) =>
   (await db.query('SELECT status FROM "google_connection" WHERE "userId" = $1', [userId])).rows[0]
@@ -66,7 +42,7 @@ const failedJobs = async () =>
 
 test("export again runs a full export right after the response", async ({ page, signInAs }) => {
   const dor = await signInAs("dor");
-  await connectInDatabase(dor.id);
+  await connectExportInDatabase(dor.id);
   await page.goto("/settings");
   await section(page).getByRole("button", { name: "ייצא מחדש ל-Google" }).click();
   await expect(section(page).getByRole("status")).toHaveText(/הייצוא המלא התחיל/);
@@ -91,7 +67,7 @@ test("disconnecting: choose what happens to the calendar, or cancel", async ({
   signInAs,
 }) => {
   const dor = await signInAs("dor");
-  await connectInDatabase(dor.id);
+  await connectExportInDatabase(dor.id);
   await page.goto("/settings");
   const export_ = section(page);
   const disconnect = export_.getByRole("button", { name: "ניתוק הייצוא" });
@@ -123,7 +99,7 @@ test("a deleted calendar: the header points to settings, where it is created aga
   signInAs,
 }) => {
   const dor = await signInAs("dor");
-  await connectInDatabase(dor.id, { target: "NEEDS_ACTION" });
+  await connectExportInDatabase(dor.id, { target: "NEEDS_ACTION" });
   await page.goto("/");
   await page.getByRole("link", { name: "ייצוא ל-Google: נדרשת פעולה" }).click();
   await expect(page).toHaveURL(/\/settings#google-export$/);
@@ -142,7 +118,7 @@ test("access to Google revoked: connect again, and the calendar can't be deleted
   signInAs,
 }) => {
   const dor = await signInAs("dor");
-  await connectInDatabase(dor.id, { connection: "NEEDS_REAUTH" });
+  await connectExportInDatabase(dor.id, { connection: "NEEDS_REAUTH" });
   await page.goto("/settings");
   const export_ = section(page);
   await expect(export_.getByRole("link", { name: "התחברות מחדש ל-Google" })).toBeVisible();
@@ -150,4 +126,43 @@ test("access to Google revoked: connect again, and the calendar can't be deleted
   await export_.getByRole("button", { name: "ניתוק הייצוא" }).click();
   await expect(export_.getByRole("radio")).toHaveCount(0);
   await expect(export_.getByText(/יישאר ב-Google, אם כבר נוצר/)).toBeVisible();
+});
+
+const SHOTS = process.env.E2E_SCREENSHOTS;
+
+/** How far the page is wider than the screen; 0 or less means no sideways scrolling. */
+const overflow = (page: Page) =>
+  page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+
+test("on a phone: the header's link and the export section fit the screen @mobile", async ({
+  page,
+  signInAs,
+}) => {
+  const dor = await signInAs("dor");
+  await connectExportInDatabase(dor.id, { target: "NEEDS_ACTION" });
+  await page.goto("/");
+  const needsAction = page.getByRole("link", { name: "ייצוא ל-Google: נדרשת פעולה" });
+  await expect(needsAction).toBeInViewport();
+  await expect(page.getByTestId("calendar")).toBeVisible();
+  expect(await overflow(page), "the calendar page").toBeLessThanOrEqual(0);
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/mobile-export-header.png` });
+
+  await needsAction.click();
+  const export_ = section(page);
+  await expect(export_.getByRole("button", { name: "צור את היומן מחדש" })).toBeVisible();
+  await export_.getByRole("button", { name: "ניתוק הייצוא" }).click();
+  const panel = export_.getByRole("group", { name: "ניתוק הייצוא ל-Google Calendar" });
+  await expect(panel.getByRole("button", { name: "נתק" })).toBeInViewport();
+  expect(await overflow(page), "disconnecting in settings").toBeLessThanOrEqual(0);
+  // Every control of the section stays inside the screen.
+  const width = page.viewportSize()!.width;
+  for (const control of await export_.locator("button, a, input").all()) {
+    const box = await control.boundingBox();
+    if (!box) continue;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+  }
+  if (SHOTS) {
+    await export_.screenshot({ path: `${SHOTS}/mobile-export-disconnect.png` });
+  }
 });
