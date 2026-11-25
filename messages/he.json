@@ -88,11 +88,16 @@
       "states": {
         "notConnected": "הייצוא לא מחובר.",
         "exporting": "מחובר. ממתין לייצוא.",
+        "someFailed": "מחובר, אבל חלק מהייצוא נכשל. אפשר לנסות שוב עם \"ייצא מחדש ל-Google\".",
         "upToDate": "מחובר. היומן ב-Google מעודכן.",
         "needsReauth": "נדרשת פעולה: הגישה ל-Google בוטלה או פגה. התחברו מחדש כדי להמשיך לייצא.",
         "needsAction": "נדרשת פעולה: היומן \"Our Calendar\" נמחק ב-Google."
       },
       "failed": "{count, plural, one {אירוע אחד לא יוצא} other {# אירועים לא יוצאו}} בגלל שגיאה.",
+      "setupFailed": {
+        "calendar": "יצירת היומן \"Our Calendar\" ב-Google נכשלה בגלל שגיאה.",
+        "fullExport": "הייצוא המלא ל-Google נכשל בגלל שגיאה."
+      },
       "lastExport": "ייצוא אחרון: {time}",
       "results": {
         "connected": "הייצוא חובר. היומן \"Our Calendar\" ייווצר בחשבון Google שלך, וכל האירועים ייוצאו אליו.",

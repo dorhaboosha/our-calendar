@@ -67,7 +67,10 @@ export function GoogleExportControls({ state, canDeleteCalendar, connectResult }
             <a href={CONNECT_URL}>{t(state === "notConnected" ? "connect" : "reconnect")}</a>
           </Button>
         )}
-        {(state === "exporting" || state === "upToDate" || state === "needsAction") && (
+        {(state === "exporting" ||
+          state === "someFailed" ||
+          state === "upToDate" ||
+          state === "needsAction") && (
           <Button
             variant={state === "needsAction" ? "solid" : "outline"}
             onClick={() => run("exportAgain", exportToGoogleAgain)}

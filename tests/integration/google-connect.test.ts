@@ -158,6 +158,7 @@ describe("the export's state", () => {
       state: "notConnected",
       pending: 0,
       failed: 0,
+      setupFailed: null,
       lastSuccessfulExportAt: null,
       lastError: null,
       canDeleteCalendar: false,
@@ -165,12 +166,55 @@ describe("the export's state", () => {
     await saveConnection(dorId, access());
     expect(await getExportStatus(dorId)).toMatchObject({ state: "exporting", pending: 1 });
 
+    // Creating the calendar failed: nothing was exported, so it isn't up to date.
     await prisma.exportJob.updateMany({ data: { status: "FAILED" } });
     expect(await getExportStatus(dorId)).toMatchObject({
-      state: "upToDate",
+      state: "someFailed",
       pending: 0,
-      failed: 1,
+      failed: 0,
+      setupFailed: "calendar",
     });
+
+    // With the calendar there, a failed job for the whole target is the full export;
+    // failed events are counted.
+    await prisma.googleExportTarget.updateMany({ data: { googleCalendarId: "calendar-1" } });
+    const target = await prisma.googleExportTarget.findFirstOrThrow();
+    const event = await prisma.event.create({
+      data: {
+        title: "e",
+        ownerType: "SHARED",
+        category: "other",
+        isAllDay: true,
+        startDate: new Date("2026-11-05"),
+        endDate: new Date("2026-11-06"),
+        createdByUserId: dorId,
+        updatedByUserId: dorId,
+      },
+    });
+    await prisma.exportJob.create({
+      data: {
+        type: "SYNC_EVENT",
+        exportTargetId: target.id,
+        eventId: event.id,
+        status: "FAILED",
+        nextAttemptAt: new Date(),
+      },
+    });
+    expect(await getExportStatus(dorId)).toMatchObject({
+      state: "someFailed",
+      failed: 1,
+      setupFailed: "fullExport",
+    });
+
+    await prisma.exportJob.deleteMany({ where: { eventId: null } });
+    expect(await getExportStatus(dorId)).toMatchObject({
+      state: "someFailed",
+      failed: 1,
+      setupFailed: null,
+    });
+
+    await prisma.exportJob.deleteMany();
+    expect(await getExportStatus(dorId)).toMatchObject({ state: "upToDate", failed: 0 });
 
     await prisma.googleExportTarget.updateMany({
       data: { status: "NEEDS_ACTION", lastError: "calendarDeleted" },
@@ -360,18 +404,30 @@ describe("the callback route", () => {
 
   it.each([
     ["another state", "code=c&state=other", flow()],
+    ["no state", "code=c", flow()],
     ["no cookie", "code=c&state=the-state", null],
     ["another user's flow", "code=c&state=the-state", { ...flow(), userId: "someone-else" }],
-    ["no code", "state=the-state", flow()],
-  ])("refuses an answer with %s", async (_case, query, cookie) => {
+    ["a refusal with another state", "error=access_denied&state=other", flow()],
+    ["a refusal with no state", "error=access_denied", flow()],
+  ])("refuses an answer with %s, and keeps the flow", async (_case, query, cookie) => {
     const response = await back(query, cookie);
     expect(result(response)).toBe("failed");
+    expect(response.headers.get("set-cookie")).toBeNull();
     expect(exchangeCode).not.toHaveBeenCalled();
     expect(await prisma.googleConnection.count()).toBe(0);
   });
 
+  it("an answer for the flow with no code ends it", async () => {
+    const response = await back("state=the-state");
+    expect(result(response)).toBe("failed");
+    expect(response.headers.get("set-cookie")).toMatch(/Max-Age=0/);
+    expect(exchangeCode).not.toHaveBeenCalled();
+  });
+
   it("a user who declined, or unticked the calendar permission, isn't connected", async () => {
-    expect(result(await back("error=access_denied&state=the-state"))).toBe("denied");
+    const declined = await back("error=access_denied&state=the-state");
+    expect(result(declined)).toBe("denied");
+    expect(declined.headers.get("set-cookie")).toMatch(/Max-Age=0/);
     exchangeCode.mockResolvedValue(access({ grantedScopes: "openid" }));
     expect(result(await back("code=c&state=the-state"))).toBe("missingScope");
     expect(await prisma.googleConnection.count()).toBe(0);

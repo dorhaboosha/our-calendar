@@ -22,9 +22,10 @@ export async function GoogleExport({ result }: { result: Promise<string | undefi
     <Stack gap="4" align="start">
       <Stack gap="1">
         <Text fontWeight="medium">{t(`states.${status.state}`)}</Text>
-        {status.failed > 0 && status.state !== "notConnected" && (
-          <Text color="fg.error">{t("failed", { count: status.failed })}</Text>
+        {status.setupFailed && (
+          <Text color="fg.error">{t(`setupFailed.${status.setupFailed}`)}</Text>
         )}
+        {status.failed > 0 && <Text color="fg.error">{t("failed", { count: status.failed })}</Text>}
         {status.lastSuccessfulExportAt && status.state !== "notConnected" && (
           <Text color="fg.muted" fontSize="sm">
             {t("lastExport", {

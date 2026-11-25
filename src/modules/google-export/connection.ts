@@ -170,15 +170,22 @@ export async function exportNeedsAction(userId: string): Promise<boolean> {
  * - needsReauth: Google access was revoked or expired; connect again.
  * - needsAction: the export waits for the user (the calendar was deleted in Google).
  * - exporting: connected, with exports still to do (pending counts them).
- * - upToDate: connected, nothing left to export.
+ * - someFailed: connected, nothing left to do, but some exports stopped after failing.
+ * - upToDate: connected, everything exported.
  */
-export type ExportState = "notConnected" | "needsReauth" | "needsAction" | "exporting" | "upToDate";
+export type ExportState =
+  "notConnected" | "needsReauth" | "needsAction" | "exporting" | "someFailed" | "upToDate";
 
 export type ExportStatus = {
   state: ExportState;
   pending: number;
-  /** Exports that stopped after failing, until "export again". */
+  /** Events whose export stopped after failing, until "export again". */
   failed: number;
+  /**
+   * Whether a job for the whole calendar stopped after failing: creating the calendar
+   * (there is none yet), or the full export.
+   */
+  setupFailed: "calendar" | "fullExport" | null;
   lastSuccessfulExportAt: Date | null;
   lastError: string | null;
   /** Disconnecting can delete the calendar: it exists, and the access still works. */
@@ -194,6 +201,7 @@ export async function getExportStatus(userId: string): Promise<ExportStatus> {
   const none = {
     pending: 0,
     failed: 0,
+    setupFailed: null,
     lastSuccessfulExportAt: null,
     lastError: null,
     canDeleteCalendar: false,
@@ -207,24 +215,37 @@ export async function getExportStatus(userId: string): Promise<ExportStatus> {
     return { state: "notConnected", ...none };
   }
   const counts = await prisma.exportJob.groupBy({
-    by: ["status"],
+    by: ["status", "type"],
     where: { exportTargetId: target.id },
     _count: true,
   });
-  const count = (status: "PENDING" | "FAILED") =>
-    counts.find((row) => row.status === status)?._count ?? 0;
+  const count = (status: "PENDING" | "FAILED", types?: string[]) =>
+    counts
+      .filter((row) => row.status === status && (!types || types.includes(row.type)))
+      .reduce((sum, row) => sum + row._count, 0);
+  const pending = count("PENDING");
+  const failed = count("FAILED", ["SYNC_EVENT"]);
+  const setupFailed =
+    count("FAILED", ["CREATE_CALENDAR", "FULL_RECONCILE"]) === 0
+      ? null
+      : target.googleCalendarId
+        ? "fullExport"
+        : "calendar";
   const state: ExportState =
     connection.status === "NEEDS_REAUTH"
       ? "needsReauth"
       : target.status === "NEEDS_ACTION"
         ? "needsAction"
-        : count("PENDING") > 0
+        : pending > 0
           ? "exporting"
-          : "upToDate";
+          : failed > 0 || setupFailed
+            ? "someFailed"
+            : "upToDate";
   return {
     state,
-    pending: count("PENDING"),
-    failed: count("FAILED"),
+    pending,
+    failed,
+    setupFailed,
     lastSuccessfulExportAt: target.lastSuccessfulExportAt,
     lastError: connection.status === "NEEDS_REAUTH" ? connection.lastError : target.lastError,
     canDeleteCalendar:

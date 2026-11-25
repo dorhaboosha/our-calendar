@@ -174,14 +174,18 @@ test.describe("signed in", () => {
         [randomUUID(), targetId, status, nextAttemptAt],
       );
 
-    test("up to date, with a failed export, and disconnecting", async ({ page }) => {
+    test("up to date, a failed export, and disconnecting", async ({ page }) => {
       const targetId = await exportAs({ lastExportAt: "2026-11-05T08:30:00+02:00" });
-      await addJob(targetId, "FAILED", "2026-11-05T08:30:00+02:00");
       await open(page);
       const section = exportSection(page);
       await expect(section.getByText("מחובר. היומן ב-Google מעודכן.")).toBeVisible();
-      await expect(section.getByText("אירוע אחד לא יוצא בגלל שגיאה.")).toBeVisible();
-      expect(await violations(page), "up to date, one failed").toEqual([]);
+      expect(await violations(page), "up to date").toEqual([]);
+
+      await addJob(targetId, "FAILED", "2026-11-05T08:30:00+02:00");
+      await open(page);
+      await expect(section.getByText(/מחובר, אבל חלק מהייצוא נכשל/)).toBeVisible();
+      await expect(section.getByText("הייצוא המלא ל-Google נכשל בגלל שגיאה.")).toBeVisible();
+      expect(await violations(page), "a failed export").toEqual([]);
 
       await section.getByRole("button", { name: "ניתוק הייצוא" }).click();
       await expect(section.getByRole("radio")).toHaveCount(2);

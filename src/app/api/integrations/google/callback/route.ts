@@ -22,10 +22,17 @@ export async function GET(request: NextRequest) {
 
   const flow = decodeFlow(request.cookies.get(FLOW_COOKIE)?.value);
   const params = request.nextUrl.searchParams;
+  const toSettings = (result: ConnectResult) =>
+    NextResponse.redirect(new URL(`/settings?google=${result}#google-export`, request.url));
+
+  // An answer that isn't for this user's flow in this browser (a forged link, or an old
+  // one) changes nothing: not even the flow, which the real answer may still finish.
+  const state = params.get("state");
+  if (!flow || !state || flow.userId !== user.id || !sameState(state, flow.state)) {
+    return toSettings("failed");
+  }
   const done = (result: ConnectResult) => {
-    const response = NextResponse.redirect(
-      new URL(`/settings?google=${result}#google-export`, request.url),
-    );
+    const response = toSettings(result);
     response.cookies.set(FLOW_COOKIE, "", { ...FLOW_COOKIE_OPTIONS, maxAge: 0 });
     return response;
   };
@@ -33,10 +40,7 @@ export async function GET(request: NextRequest) {
   const error = params.get("error");
   if (error) return done(error === "access_denied" ? "denied" : "failed");
   const code = params.get("code");
-  const state = params.get("state");
-  if (!flow || !code || !state || flow.userId !== user.id || !sameState(state, flow.state)) {
-    return done("failed");
-  }
+  if (!code) return done("failed");
 
   try {
     const access = await exchangeCode(code, flow.verifier);
