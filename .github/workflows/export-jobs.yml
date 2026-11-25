@@ -1,0 +1,42 @@
+# Runs the Google export jobs that are due, every 30 minutes, so failed exports are
+# retried even when nobody uses the app. Exports normally run right after each change;
+# this only catches up. It also wakes the Render service (free plan) if it is asleep.
+#
+# Needs the repository secret CRON_SECRET, the same value as on Render.
+# GitHub turns scheduled workflows off after 60 days without activity in the repository;
+# it can be turned on again under Actions > Export jobs.
+name: Export jobs
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: export-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    # Not in forks: they have neither the secret nor the app.
+    if: github.repository == 'dorhaboosha/our-calendar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_URL: https://our-calendar-ay05.onrender.com
+    steps:
+      - name: Run due export jobs
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::The CRON_SECRET repository secret is not set."
+            exit 1
+          fi
+          # A sleeping service takes up to about a minute to start: retry, with time.
+          curl --fail-with-body --silent --show-error \
+            --max-time 180 --retry 3 --retry-delay 30 --retry-all-errors \
+            -X POST -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/jobs/run"

@@ -19,11 +19,13 @@ vi.mock("next/cache", () => ({ refresh: vi.fn() }));
 vi.mock("next-intl/server", async () => {
   const { createTranslator } = await import("next-intl");
   return {
-    getTranslations: async () => createTranslator({ locale: "he", messages }),
+    getTranslations: async (namespace?: string) =>
+      createTranslator({ locale: "he", messages, namespace: namespace as never }),
   };
 });
 
-const { saveMyColor, saveSharedColor } = await import("@/app/(app)/settings/actions");
+const { saveMyColor, saveSharedColor, exportToGoogleAgain, disconnectGoogle } =
+  await import("@/app/(app)/settings/actions");
 const { refresh } = await import("next/cache");
 
 const [dorConfig, maayanConfig] = appConfig.users;
@@ -126,6 +128,32 @@ describe("saveSharedColor", () => {
         ok: false,
         message: messages.settings.errors.invalid,
       });
+    }
+  });
+});
+
+describe("the Google export actions", () => {
+  const texts = messages.settings.googleExport.actions;
+
+  it("require a signed-in user", async () => {
+    await expect(exportToGoogleAgain()).rejects.toThrow("REDIRECT:/login");
+    await expect(disconnectGoogle(false)).rejects.toThrow("REDIRECT:/login");
+  });
+
+  it("act on the signed-in user's own export, with Hebrew messages", async () => {
+    await signInAs("dor");
+    expect(await exportToGoogleAgain()).toEqual({ ok: false, message: texts.errors.notConnected });
+    expect(await disconnectGoogle(false)).toEqual({
+      ok: false,
+      message: texts.errors.notConnected,
+    });
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("reject a choice that isn't true or false", async () => {
+    await signInAs("dor");
+    for (const value of ["true", 1, null]) {
+      expect(await disconnectGoogle(value)).toEqual({ ok: false, message: texts.errors.invalid });
     }
   });
 });

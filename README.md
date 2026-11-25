@@ -5,8 +5,9 @@ Each of us sees both calendars in one place, and events are exported automatical
 dedicated "Our Calendar" calendar in each person's Google account, so they show up on
 our phones.
 
-> **Status:** Phase 3 (repeating events) is done, on top of the calendar, events and
-> filters of Phase 2. Next: the Google export (Phase 4). See
+> **Status:** Phase 4 (the export to Google Calendar) is done, on top of the repeating
+> events of Phase 3 and the calendar, events and filters of Phase 2. Next: hardening and
+> release (Phase 5: home-screen install, refresh on return, touch targets). See
 > [`Project Spec.md`](Project%20Spec.md) for the full spec and decision log (Hebrew),
 > and [`docs/discovery.md`](docs/discovery.md) for the Phase 0 discovery report.
 
@@ -31,6 +32,12 @@ our phones.
   from each other.
 - **Filters** by owner and by category, kept in the URL. The owner chips are also the
   color legend.
+- **Export to Google Calendar:** each of us connects our own Google account in settings.
+  The app creates a calendar named "Our Calendar" there and keeps every event in it up
+  to date (personal ones titled "Dor: ..." or "Maayan: ...", and colored by owner),
+  repeating events and their changed occurrences too. Settings show the export's state;
+  "export again" repairs the calendar (also one deleted in Google), and disconnecting
+  asks whether to keep the calendar or delete it.
 
 ## How it works
 
@@ -39,7 +46,15 @@ our phones.
 - **Only two people can sign in**, with their Google accounts. The allowed emails are
   environment variables; there is no sign-up.
 - **Sign-in asks Google only for name and email.** Calendar permission is requested
-  separately, when a user connects export (Phase 4).
+  separately, when a user connects the export, and only for
+  `calendar.app.created`: the app can reach only the calendar it creates, never the
+  user's other calendars.
+- **The export runs through a queue.** Saving a change also queues its export, in the
+  same database transaction; the job runs right after the response, and a failure is
+  tried again later (see [Google export jobs](#google-export-jobs)). Google event ids
+  come from the app's ids, so a retry never makes a copy. Refresh tokens are encrypted
+  (AES-256-GCM) with `TOKEN_ENCRYPTION_KEY`. Edits made in Google are overwritten by the
+  next export.
 
 ## Tech stack
 
@@ -74,9 +89,13 @@ In `.env`, fill in:
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
 - `USER_EMAIL_DOR`, `USER_EMAIL_MAAYAN`: the two Google accounts allowed to sign in.
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`: an OAuth client of type "Web application"
-  in Google Cloud, with the redirect URI
-  `http://localhost:3000/api/auth/callback/google`. While the consent screen is in
-  "Testing", both emails must be listed as test users.
+  in Google Cloud, with the redirect URIs
+  `http://localhost:3000/api/auth/callback/google` (sign-in) and
+  `http://localhost:3000/api/integrations/google/callback` (export, the value of
+  `GOOGLE_OAUTH_REDIRECT_URI`). While the consent screen is in "Testing", both emails
+  must be listed as test users.
+- `TOKEN_ENCRYPTION_KEY` (32 random bytes, base64) and `CRON_SECRET` (32+ random
+  characters): generate each with the same command as `BETTER_AUTH_SECRET`.
 
 The database URLs in `.env.example` already match the Docker database.
 
@@ -131,6 +150,9 @@ Integration and end-to-end tests use a separate `our_calendar_test` database and
 emails, so they never touch development data or real accounts. End-to-end tests sign in
 by creating a session directly in the test database, without going through Google, and
 fail on any browser console error.
+No test calls the real Google: the export runs against an in-memory fake
+([`tests/integration/fake-google.ts`](tests/integration/fake-google.ts)) that behaves as
+the [Google spike](docs/google-spike.md) found the real API does.
 
 - End-to-end tests fix the browser's clock (5 November 2026, Israel time), so the
   calendar always opens on the same month.
@@ -138,9 +160,9 @@ fail on any browser console error.
   are tagged `@mobile`.
 - [`tests/e2e/accessibility.spec.ts`](tests/e2e/accessibility.spec.ts) scans every
   screen and dialog with axe-core (WCAG 2.1 A and AA).
-- `E2E_SCREENSHOTS=<folder> npm run test:e2e -- calendar repeating-events` saves
-  screenshots of the calendar views and of the repeat fields on a phone, to check them
-  by eye.
+- `E2E_SCREENSHOTS=<folder> npm run test:e2e -- calendar repeating-events google-export`
+  saves screenshots of the calendar views, the repeat fields and the Google export
+  section on a phone, to check them by eye.
 
 Other checks: `npm run lint`, `npm run typecheck`, `npm run format:check`
 (`npm run format` fixes formatting).
@@ -171,13 +193,32 @@ Before the first deploy:
 1. Create a Neon project in region `aws-eu-central-1` (Frankfurt) with Postgres 16.
    Copy both connection strings: the pooled one (host contains `-pooler`) for
    `DATABASE_URL` and the direct one for `DIRECT_URL`.
-2. In Google Cloud, create a second OAuth client for production with the redirect URI
-   `https://<your-service>.onrender.com/api/auth/callback/google`.
+2. In Google Cloud, create a second OAuth client for production with the redirect URIs
+   `https://<your-service>.onrender.com/api/auth/callback/google` and
+   `https://<your-service>.onrender.com/api/integrations/google/callback`.
 3. In Render, create the service from the Blueprint and fill in the variables it asks for.
-   `BETTER_AUTH_SECRET` is generated by Render; `BETTER_AUTH_URL` is the service URL.
+   `BETTER_AUTH_SECRET` is generated by Render; `BETTER_AUTH_URL` is the service URL, and
+   `GOOGLE_OAUTH_REDIRECT_URI` the second redirect URI above.
+4. Add the same `CRON_SECRET` as a repository secret on GitHub (see below).
 
 On the free plan the service sleeps after 15 minutes without traffic, so the first visit
 after that takes up to a minute. Moving to a paid plan needs no code changes.
+
+### Google export jobs
+
+Exports to Google run in the web server, with no separate worker: right after each
+change (once the response is sent), on page views for retries that came due, and every
+30 minutes from [`export-jobs.yml`](.github/workflows/export-jobs.yml), which calls
+`POST /api/jobs/run` with the shared secret `CRON_SECRET`.
+
+- Set `CRON_SECRET` (at least 32 random characters) both on Render and as a repository
+  secret on GitHub (Settings > Secrets and variables > Actions), with the same value.
+- GitHub turns scheduled workflows off after 60 days without activity in the
+  repository. If that happens, turn it on again under Actions > Export jobs. Until
+  then, exports still run after every change; only the retries of failed ones wait for
+  someone to open the app.
+- Each run wakes the service if it sleeps, so the free plan's 750 hours a month are
+  used faster; every 30 minutes stays within them (every 15 would not).
 
 ### Production
 
@@ -205,7 +246,8 @@ fix is a custom domain instead of `onrender.com`.
 ```
 src/
   app/                 routes: (app)/ = signed-in pages and their server actions,
-                       login/, privacy/, api/ (auth, events, health)
+                       login/, privacy/, api/ (auth, events, health, the export's
+                       connect and callback, and jobs/run for the scheduled trigger)
   components/          providers (Chakra, Emotion), calendar/ (FullCalendar, URL
                        state, filters), events/ (event form, details, delete and
                        "which occurrences" dialogs)
@@ -214,7 +256,9 @@ src/
   lib/                 Prisma client, Better Auth server and client
   modules/             domain logic: auth/ (allowlist, session), users/ (colors),
                        events/ (time zones, repeat rules, validation, form behavior,
-                       descriptions, data access)
+                       descriptions, data access), jobs/ (the export queue),
+                       google-export/ (OAuth, token encryption, mapping to Google
+                       events, running the jobs, connection state, triggers)
   proxy.ts             redirects to /login when there is no session cookie
 messages/he.json       all UI text
 prisma/                schema and migrations

@@ -11,23 +11,24 @@ datasource db {
 // User, Session, Account and Verification are the core tables Better Auth expects.
 
 model User {
-  id                String           @id
+  id                String            @id
   name              String
-  email             String           @unique
-  emailVerified     Boolean          @default(false)
+  email             String            @unique
+  emailVerified     Boolean           @default(false)
   image             String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
   /// Which user from app.config.ts this is ("dor" / "maayan").
-  configKey         String           @unique
+  configKey         String            @unique
   /// Color the user picked in settings; null means the config default.
   color             String?
   sessions          Session[]
   accounts          Account[]
-  ownedEvents       Event[]          @relation("EventOwner")
-  createdEvents     Event[]          @relation("EventCreatedBy")
-  updatedEvents     Event[]          @relation("EventUpdatedBy")
+  ownedEvents       Event[]           @relation("EventOwner")
+  createdEvents     Event[]           @relation("EventCreatedBy")
+  updatedEvents     Event[]           @relation("EventUpdatedBy")
   updatedExceptions EventException[]
+  googleConnection  GoogleConnection?
 
   @@map("user")
 }
@@ -93,37 +94,37 @@ enum EventOwnerType {
 /// startDate/endDate. Exactly one pair is set, enforced by CHECK constraints in the
 /// migration (Prisma can't express them).
 model Event {
-  id               String           @id @default(uuid())
+  id               String               @id @default(uuid())
   title            String
   description      String?
   location         String?
   ownerType        EventOwnerType
   ownerUserId      String?
-  owner            User?            @relation("EventOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  owner            User?                @relation("EventOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
   /// Category key from app.config.ts. Not a database enum, so categories can change
   /// without a migration; the app validates the key.
   category         String
   isAllDay         Boolean
   /// Timed events: the exact start and end instants.
-  startAt          DateTime?        @db.Timestamptz(3)
-  endAt            DateTime?        @db.Timestamptz(3)
+  startAt          DateTime?            @db.Timestamptz(3)
+  endAt            DateTime?            @db.Timestamptz(3)
   /// All-day events: dates with no time. endDate is EXCLUSIVE (the day after the last
   /// day), like Google Calendar; the form shows the last day itself.
-  startDate        DateTime?        @db.Date
-  endDate          DateTime?        @db.Date
+  startDate        DateTime?            @db.Date
+  endDate          DateTime?            @db.Date
   /// IANA time zone the event's local times belong to.
-  timezone         String           @default("Asia/Jerusalem")
+  timezone         String               @default("Asia/Jerusalem")
   createdByUserId  String
-  createdBy        User             @relation("EventCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdBy        User                 @relation("EventCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   updatedByUserId  String
-  updatedBy        User             @relation("EventUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  updatedBy        User                 @relation("EventUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
   /// Soft delete: kept so the Google export (Phase 4) can delete the exported copy.
   deletedAt        DateTime?
-  /// Goes up by one on every change, including a change to one of its occurrences; the
-  /// export uses it to skip unchanged events.
-  version          Int              @default(1)
+  /// Goes up by one on every change, including a change to one of its occurrences; it
+  /// guards against saving over someone else's change, and the export records it.
+  version          Int                  @default(1)
   /// A repeating event (a series): its RRULE value without "RRULE:" and without
   /// DTSTART (RFC 5545). The series starts at the event's start, in its time zone; see
   /// src/modules/events/recurrence.ts. Null for a one-off event.
@@ -131,9 +132,11 @@ model Event {
   /// "This and following" splits a series: the original stops before the chosen
   /// occurrence and a new series starts from it. The new one points to the original.
   splitFromEventId String?
-  splitFrom        Event?           @relation("EventSplit", fields: [splitFromEventId], references: [id], onDelete: SetNull)
-  splitInto        Event[]          @relation("EventSplit")
+  splitFrom        Event?               @relation("EventSplit", fields: [splitFromEventId], references: [id], onDelete: SetNull)
+  splitInto        Event[]              @relation("EventSplit")
   exceptions       EventException[]
+  exportMappings   EventExportMapping[]
+  exportJobs       ExportJob[]
 
   @@index([startAt, endAt])
   @@index([startDate, endDate])
@@ -176,6 +179,143 @@ model EventException {
   @@unique([eventId, originalStartAt])
   @@unique([eventId, originalStartDate])
   @@map("event_exception")
+}
+
+// ---- Export to Google Calendar ----
+// Export is one way: each connected user gets an "Our Calendar" calendar in their own
+// Google account, holding every event of the app. Nothing is read back from Google.
+
+enum GoogleConnectionStatus {
+  ACTIVE
+  /// Google refused the refresh token (revoked or expired): the user must connect again.
+  NEEDS_REAUTH
+  /// The user disconnected; the token was revoked and removed.
+  DISCONNECTED
+}
+
+/// A user's permission for the export (scope calendar.app.created only), granted in an
+/// OAuth flow separate from sign-in. At most one per user.
+model GoogleConnection {
+  id                    String                 @id @default(uuid())
+  userId                String                 @unique
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The Google account's stable id ("sub"); it may differ from the sign-in account.
+  googleAccountId       String
+  status                GoogleConnectionStatus
+  /// The refresh token, encrypted (see src/modules/google-export/token-crypto.ts).
+  /// Required while ACTIVE; removed on disconnect.
+  encryptedRefreshToken String?
+  /// The scopes Google granted, space-separated, as Google reports them.
+  grantedScopes         String
+  lastError             String?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  target                GoogleExportTarget?
+
+  @@map("google_connection")
+}
+
+enum ExportTargetStatus {
+  ACTIVE
+  /// The export can't go on without the user (for example, the calendar was deleted in
+  /// Google); the settings page says what to do.
+  NEEDS_ACTION
+  /// No longer exported to (the connection was disconnected).
+  DISABLED
+}
+
+/// The "Our Calendar" calendar the app created in a connected Google account.
+model GoogleExportTarget {
+  id                     String               @id @default(uuid())
+  connectionId           String               @unique
+  connection             GoogleConnection     @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  /// Null until the calendar has been created in Google.
+  googleCalendarId       String?
+  status                 ExportTargetStatus
+  lastSuccessfulExportAt DateTime?
+  lastError              String?
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  mappings               EventExportMapping[]
+  jobs                   ExportJob[]
+
+  @@map("google_export_target")
+}
+
+enum ExportMappingStatus {
+  /// The event's copy in Google is up to date with exportedVersion.
+  EXPORTED
+  /// The event was deleted in the app, and its copy in Google too.
+  DELETED
+}
+
+/// What was last exported of an event to one target: its id in Google and the version
+/// exported. Every export job sends the event again (jobs are queued only on changes,
+/// and "export again" must fix edits made by hand in Google), so none is skipped.
+model EventExportMapping {
+  id                  String              @id @default(uuid())
+  eventId             String
+  event               Event               @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  exportTargetId      String
+  exportTarget        GoogleExportTarget  @relation(fields: [exportTargetId], references: [id], onDelete: Cascade)
+  /// Chosen by the app (derived from the event id), so a retry never makes a duplicate.
+  googleEventId       String
+  exportedVersion     Int
+  /// A series: the original starts of the occurrences exported with changes of their
+  /// own (or cancelled), as ISO instants or dates. An occurrence that later loses its
+  /// changes is set back to the series' values in Google.
+  exportedOccurrences String[]            @default([])
+  status              ExportMappingStatus
+  lastExportedAt      DateTime
+  lastError           String?
+
+  @@unique([exportTargetId, eventId])
+  @@unique([exportTargetId, googleEventId])
+  @@map("event_export_mapping")
+}
+
+enum ExportJobType {
+  /// Bring one event's copy in Google to the event's current state: create, update,
+  /// or delete it. It reads the event when it runs, so several changes in a row export
+  /// once.
+  SYNC_EVENT
+  /// Export every event to the target ("export again" in settings, and after connecting).
+  FULL_RECONCILE
+  /// Create the "Our Calendar" calendar in Google.
+  CREATE_CALENDAR
+}
+
+enum ExportJobStatus {
+  /// Waiting to run at nextAttemptAt (or running, while lockedAt is set).
+  PENDING
+  /// Gave up after too many attempts; shown in settings with "try again".
+  FAILED
+}
+
+/// The export outbox. A job is added in the same transaction as the change it exports,
+/// and deleted once it succeeds. At most one job per event and target, and one of each
+/// other type per target (partial unique indexes in the migration), so changes merge
+/// into one job instead of piling up.
+model ExportJob {
+  id             String             @id @default(uuid())
+  type           ExportJobType
+  exportTargetId String
+  exportTarget   GoogleExportTarget @relation(fields: [exportTargetId], references: [id], onDelete: Cascade)
+  /// SYNC_EVENT only.
+  eventId        String?
+  event          Event?             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  status         ExportJobStatus    @default(PENDING)
+  attemptCount   Int                @default(0)
+  nextAttemptAt  DateTime           @default(now())
+  /// Set while a runner works on the job; a lock older than a few minutes is stale (the
+  /// runner died) and the job may be taken again.
+  lockedAt       DateTime?
+  lastError      String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@map("export_job")
 }
 
 // ---- Settings shared by both users ----

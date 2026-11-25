@@ -7,11 +7,15 @@ import { requireUser } from "@/modules/auth/current-user";
 import { getSharedColor, otherCalendarColors, userCalendarColors } from "@/modules/users/users";
 import { saveMyColor, saveSharedColor } from "./actions";
 import { ColorForm } from "./color-form";
+import { GoogleExport } from "./google-export";
 
 // The page itself reads no data, so it renders at once on navigation; each form
 // streams in behind its own Suspense boundary.
-export default function SettingsPage() {
+export default function SettingsPage({ searchParams }: PageProps<"/settings">) {
   const t = useTranslations("settings");
+  const googleResult = searchParams.then(({ google }) =>
+    typeof google === "string" ? google : undefined,
+  );
 
   return (
     <Box as="main" px={{ base: "4", md: "6" }} py="6" maxW="2xl" mx="auto">
@@ -26,6 +30,13 @@ export default function SettingsPage() {
           help={t("sharedColorHelp")}
         >
           <SharedColorForm />
+        </SettingsSection>
+        <SettingsSection
+          id="google-export"
+          title={t("googleExport.title")}
+          help={t("googleExport.help")}
+        >
+          <GoogleExport result={googleResult} />
         </SettingsSection>
       </Stack>
     </Box>

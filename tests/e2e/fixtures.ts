@@ -38,6 +38,42 @@ export async function savedSharedColor(): Promise<string | null> {
   return rows[0]?.sharedColor ?? null;
 }
 
+/**
+ * A user's Google export, straight in the database: the connection and its target, with
+ * a dummy token, so no call reaches Google. Returns the target's id.
+ */
+export async function connectExportInDatabase(
+  userId: string,
+  {
+    connection = "ACTIVE",
+    target = "ACTIVE",
+    calendarId = "calendar-1@group.calendar.google.com",
+    lastExportAt = null,
+  }: {
+    connection?: string;
+    target?: string;
+    calendarId?: string | null;
+    /** ISO time of the last successful export, if any. */
+    lastExportAt?: string | null;
+  } = {},
+): Promise<string> {
+  const connectionId = randomUUID();
+  const targetId = randomUUID();
+  await db.query(
+    `INSERT INTO "google_connection" (id, "userId", "googleAccountId", status,
+       "encryptedRefreshToken", "grantedScopes", "updatedAt")
+     VALUES ($1, $2, 'sub-1', $3, 'v1.dummy.dummy.dummy', 'openid', now())`,
+    [connectionId, userId, connection],
+  );
+  await db.query(
+    `INSERT INTO "google_export_target" (id, "connectionId", "googleCalendarId", status,
+       "lastSuccessfulExportAt", "updatedAt")
+     VALUES ($1, $2, $3, $4, $5, now())`,
+    [targetId, connectionId, calendarId, target, lastExportAt],
+  );
+  return targetId;
+}
+
 type TestEvent = {
   title: string;
   /** A user key, or "shared". */
