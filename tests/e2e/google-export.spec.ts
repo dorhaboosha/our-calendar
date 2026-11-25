@@ -51,7 +51,8 @@ test("export again runs a full export right after the response", async ({ page, 
   // The job ran after the response: the dummy token can't be read, which counts as
   // access that has to be granted again.
   await expect.poll(() => statusOf(dor.id)).toBe("NEEDS_REAUTH");
-  expect(await failedJobs()).toEqual([
+  // The job is marked failed only after the connection, so it is polled too.
+  await expect.poll(failedJobs).toEqual([
     {
       type: "CREATE_CALENDAR",
       status: "FAILED",

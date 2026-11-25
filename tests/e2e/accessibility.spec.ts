@@ -193,9 +193,10 @@ test.describe("signed in", () => {
     });
 
     test("waiting, and a deleted calendar with the header's link", async ({ page }) => {
-      // A job not yet due, so the page doesn't run it.
+      // A job not yet due, so the page doesn't run it. The server keeps the real time
+      // (only the browser's clock is fixed), so a day from now.
       const targetId = await exportAs({});
-      await addJob(targetId, "PENDING", "2026-12-31T00:00:00Z");
+      await addJob(targetId, "PENDING", new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
       await open(page);
       await expect(exportSection(page).getByText("מחובר. ממתין לייצוא.")).toBeVisible();
       expect(await violations(page), "waiting").toEqual([]);
