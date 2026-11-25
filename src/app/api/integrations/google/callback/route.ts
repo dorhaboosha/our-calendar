@@ -1,4 +1,5 @@
-import { type NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { redirectTo } from "@/lib/redirect";
 import { getCurrentUser } from "@/modules/auth/current-user";
 import { type ConnectResult, saveConnection } from "@/modules/google-export/connection";
 import {
@@ -18,12 +19,12 @@ import { exportSoon } from "@/modules/google-export/trigger";
  */
 export async function GET(request: NextRequest) {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.redirect(new URL("/login", request.url));
+  if (!user) return redirectTo("/login");
 
   const flow = decodeFlow(request.cookies.get(FLOW_COOKIE)?.value);
   const params = request.nextUrl.searchParams;
   const toSettings = (result: ConnectResult) =>
-    NextResponse.redirect(new URL(`/settings?google=${result}#google-export`, request.url));
+    redirectTo(`/settings?google=${result}#google-export`);
 
   // An answer that isn't for this user's flow in this browser (a forged link, or an old
   // one) changes nothing: not even the flow, which the real answer may still finish.

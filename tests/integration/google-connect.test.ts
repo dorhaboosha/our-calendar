@@ -359,7 +359,7 @@ describe("export again and disconnect", () => {
 
 describe("the connect route", () => {
   it("sends the user to Google, keeping the state in a short httpOnly cookie", async () => {
-    const response = await connect.GET(new Request(`${BASE}/api/integrations/google/connect`));
+    const response = await connect.GET();
     expect(response.status).toBe(307);
     const location = new URL(response.headers.get("location")!);
     expect(location.origin).toBe("https://accounts.google.com");
@@ -374,8 +374,8 @@ describe("the connect route", () => {
 
   it("signed out, goes to the login page", async () => {
     signedIn = null;
-    const response = await connect.GET(new Request(`${BASE}/api/integrations/google/connect`));
-    expect(response.headers.get("location")).toBe(`${BASE}/login`);
+    const response = await connect.GET();
+    expect(response.headers.get("location")).toBe("/login");
   });
 });
 
@@ -391,11 +391,14 @@ describe("the callback route", () => {
   }
 
   const result = (response: Response) =>
-    new URL(response.headers.get("location")!).searchParams.get("google");
+    new URL(response.headers.get("location")!, BASE).searchParams.get("google");
 
   it("saves the connection and returns to settings", async () => {
     exchangeCode.mockResolvedValue(access());
     const response = await back("code=the-code&state=the-state");
+    // A path, not a URL: behind Render's proxy the request's URL has the server's
+    // internal address, where the browser can't go.
+    expect(response.headers.get("location")).toBe("/settings?google=connected#google-export");
     expect(result(response)).toBe("connected");
     expect(exchangeCode).toHaveBeenCalledWith("the-code", "the-verifier");
     expect(response.headers.get("set-cookie")).toMatch(/Max-Age=0/);
@@ -444,6 +447,6 @@ describe("the callback route", () => {
   it("signed out, goes to the login page", async () => {
     signedIn = null;
     const response = await back("code=c&state=the-state");
-    expect(response.headers.get("location")).toBe(`${BASE}/login`);
+    expect(response.headers.get("location")).toBe("/login");
   });
 });
