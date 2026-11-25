@@ -6,6 +6,7 @@ import {
   exchangeCode,
   hasCalendarScope,
   refreshAccessToken,
+  revokeToken,
   startAuthorization,
 } from "./oauth";
 
@@ -97,6 +98,29 @@ describe("the code Google sends back", () => {
     await expect(exchangeCode("c", "v", offline, config)).rejects.toMatchObject({
       status: null,
     });
+  });
+
+  it("an answer cut off before its body arrives is a network failure too", async () => {
+    const cutOff = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          new ReadableStream({
+            start: (controller) => controller.error(new TypeError("terminated")),
+          }),
+          { status: 200 },
+        ),
+    );
+    await expect(refreshAccessToken("refresh", cutOff, config)).rejects.toMatchObject({
+      status: null,
+      reason: "unreachable",
+    });
+  });
+});
+
+describe("revoking", () => {
+  it("succeeds with an empty answer", async () => {
+    const empty = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+    await expect(revokeToken("refresh", empty)).resolves.toBeUndefined();
   });
 });
 

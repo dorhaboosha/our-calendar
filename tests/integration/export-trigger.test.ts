@@ -101,6 +101,17 @@ describe("a run", () => {
     expect(await runExportsNow({ apiFor: () => google, budgetMs: 0 })).toBe(20);
     expect(await prisma.exportJob.count()).toBe(5);
   });
+
+  it("a run joined while going doesn't get more time", async () => {
+    await enqueueTargetJob(prisma, targetId, "CREATE_CALENDAR");
+    await runExportsNow({ apiFor: () => google });
+    await enqueueEventExports(prisma, await events(25), undefined, targetId);
+    const first = runExportsNow({ apiFor: () => google, budgetMs: 0 });
+    runExportsNow({ apiFor: () => google });
+    // Without the shared budget, the second call would run the other 5 too.
+    expect(await first).toBe(20);
+    expect(await prisma.exportJob.count()).toBe(5);
+  });
 });
 
 describe("scheduling", () => {

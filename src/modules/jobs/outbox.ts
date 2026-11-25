@@ -109,6 +109,9 @@ export async function completeJob(job: ExportJob): Promise<void> {
  * longer waits each time, up to MAX_ATTEMPTS; a permanent one, or one that ran out of
  * attempts, stops as FAILED until someone tries again. error is a short description
  * for the settings page, never containing a token.
+ *
+ * Like completeJob: a job queued again while it ran (its updatedAt moved on) is only
+ * unlocked, so the newer change runs now, with its attempts counted from zero.
  */
 export async function failJob(
   job: ExportJob,
@@ -119,8 +122,8 @@ export async function failJob(
   const attemptCount = job.attemptCount + 1;
   const delay = RETRY_DELAYS_MINUTES[Math.min(attemptCount, RETRY_DELAYS_MINUTES.length) - 1];
   const failed = !retry || attemptCount >= MAX_ATTEMPTS;
-  await prisma.exportJob.updateMany({
-    where: { id: job.id },
+  const { count } = await prisma.exportJob.updateMany({
+    where: { id: job.id, updatedAt: job.updatedAt },
     data: {
       attemptCount,
       lastError: error,
@@ -130,6 +133,9 @@ export async function failJob(
         : { nextAttemptAt: new Date(now.getTime() + delay * MINUTE) }),
     },
   });
+  if (count === 0) {
+    await prisma.exportJob.updateMany({ where: { id: job.id }, data: { lockedAt: null } });
+  }
 }
 
 /** What a job's handler reports. */

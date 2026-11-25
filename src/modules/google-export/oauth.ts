@@ -75,13 +75,30 @@ async function postForm(url: string, body: Record<string, string>, fetchFn: Fetc
   } catch {
     throw new GoogleApiError(null, "unreachable");
   }
-  const json = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  // The body can still fail to arrive (the connection drops, or the time runs out): a
+  // network failure, tried again. A body that isn't JSON (a revoke may send none) is {}.
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw new GoogleApiError(null, "unreachable");
+  }
+  const json = parseObject(text);
   if (!response.ok) {
     // Token errors are { error: "invalid_grant", error_description: ... }.
     const reason = typeof json.error === "string" ? json.error : `http_${response.status}`;
     throw new GoogleApiError(response.status, reason);
   }
   return json;
+}
+
+function parseObject(text: string): Record<string, unknown> {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 export type GrantedAccess = {

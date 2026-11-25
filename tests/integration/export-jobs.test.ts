@@ -263,6 +263,22 @@ describe("running jobs", () => {
     });
   });
 
+  it("a failure doesn't hold up a change queued while the job ran, even on its last attempt", async () => {
+    const [eventId] = await queued(1);
+    await prisma.exportJob.updateMany({ data: { attemptCount: MAX_ATTEMPTS - 1 } });
+    const [job] = await claimJobs(1, at(1));
+    await enqueueEventExports(prisma, [eventId], at(2));
+    await failJob(job, "Google didn't answer", { retry: true }, at(3));
+    expect(await prisma.exportJob.findFirstOrThrow()).toMatchObject({
+      status: "PENDING",
+      attemptCount: 0,
+      nextAttemptAt: at(2),
+      lastError: null,
+      lockedAt: null,
+    });
+    expect(await claimJobs(1, at(3))).toHaveLength(1);
+  });
+
   it("runs due jobs with a handler, counting a throw as a temporary failure", async () => {
     const ids = await queued(3);
     const handled: string[] = [];

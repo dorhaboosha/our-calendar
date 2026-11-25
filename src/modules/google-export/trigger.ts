@@ -24,8 +24,8 @@ let lastIdleCheck = 0;
 /**
  * Runs the due export jobs until none are left (or the budget runs out). If a run is
  * already going in this server, it runs once more when that one ends, and this waits
- * for both. Never throws: a failure is logged, and the jobs stay queued. Returns how
- * many jobs ran.
+ * for both; the budget covers both, so changes that keep coming can't stretch a run.
+ * Never throws: a failure is logged, and the jobs stay queued. Returns how many jobs ran.
  */
 export function runExportsNow({
   apiFor = googleApiFor,
@@ -37,16 +37,17 @@ export function runExportsNow({
   }
   running = (async () => {
     let total = 0;
+    const started = Date.now();
+    const timeLeft = () => Date.now() - started < budgetMs;
     try {
       do {
         again = false;
-        const started = Date.now();
         let ran: number;
         do {
           ran = await runExportJobs(apiFor);
           total += ran;
-        } while (ran > 0 && Date.now() - started < budgetMs);
-      } while (again);
+        } while (ran > 0 && timeLeft());
+      } while (again && timeLeft());
     } catch (error) {
       // Never a token: export errors are only statuses and reasons.
       console.error("Export run failed:", error instanceof Error ? error.message : error);
