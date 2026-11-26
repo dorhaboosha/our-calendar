@@ -68,8 +68,10 @@ async function currentConnection(userId: string) {
 
 /**
  * "Export again": every event is sent to Google again, which also undoes changes made
- * there by hand. After the calendar was deleted in Google, it is created again (empty)
- * first. Not while the access has to be granted again.
+ * there by hand to an event, or brings it back if deleted. Not one occurrence of a
+ * series changed by hand there: nothing is read from Google, and only occurrences
+ * changed in the app are sent. After the calendar was deleted in Google, it is created
+ * again (empty) first. Not while the access has to be granted again.
  */
 export async function exportAgain(userId: string): Promise<ExportActionResult> {
   const connection = await currentConnection(userId);
