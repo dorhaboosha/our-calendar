@@ -128,7 +128,7 @@ describe("exporting", () => {
 
     const calendar = google.only();
     expect(calendar).toMatchObject({ summary: "Our Calendar", timeZone: "Asia/Jerusalem" });
-    expect(calendar.description).toContain("היומן שלנו");
+    expect(calendar.description).toContain("OurCalendar");
     expect(google.event(old.googleId)).toMatchObject({ summary: "יום הולדת", status: "confirmed" });
     expect(google.event(dentist.googleId)).toMatchObject({ summary: "דור: רופא שיניים" });
     expect(calendar.events.size).toBe(2);

@@ -1,4 +1,4 @@
-# Our Calendar
+# OurCalendar
 
 A private shared calendar for two people (Dor and Maayan), in Hebrew and right-to-left.
 Each of us sees both calendars in one place, and events are exported automatically to a

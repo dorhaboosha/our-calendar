@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "היומן שלנו",
+    "name": "OurCalendar",
     "description": "יומן משותף לדור ומעיין"
   },
   "common": {
@@ -11,7 +11,7 @@
     "saved": "נשמר"
   },
   "login": {
-    "title": "ברוכים הבאים ליומן שלנו",
+    "title": "ברוכים הבאים ל-OurCalendar",
     "subtitle": "התחברו עם חשבון Google כדי להמשיך.",
     "about": "יומן פרטי ומשותף של דור ומעיין. רק שני החשבונות שלנו יכולים להיכנס.",
     "googleNote": "הכניסה מתבצעת בדף ההתחברות הרשמי של Google. האתר הזה לא מבקש ולא שומר סיסמאות.",
@@ -109,8 +109,8 @@
   },
   "privacy": {
     "title": "מדיניות פרטיות",
-    "updated": "עודכן לאחרונה: 31 באוקטובר 2026",
-    "intro": "\"היומן שלנו\" הוא יומן פרטי ומשותף של שני אנשים, דור ומעיין. רק שני חשבונות Google מורשים יכולים להיכנס אליו. הדף הזה מסביר איזה מידע האתר שומר ולמה.",
+    "updated": "עודכן לאחרונה: 26 בנובמבר 2026",
+    "intro": "OurCalendar הוא יומן פרטי ומשותף של שני אנשים, דור ומעיין. רק שני חשבונות Google מורשים יכולים להיכנס אליו. הדף הזה מסביר איזה מידע האתר שומר ולמה.",
     "sections": {
       "collect": {
         "heading": "איזה מידע נשמר",
@@ -126,7 +126,7 @@
       },
       "limitedUse": {
         "heading": "Google API Services User Data Policy",
-        "body": "Our Calendar's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements."
+        "body": "OurCalendar's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements."
       },
       "storage": {
         "heading": "איפה המידע נשמר",
@@ -268,6 +268,6 @@
   },
   "googleExport": {
     "ownedTitle": "{owner}: {title}",
-    "calendarDescription": "האירועים של \"היומן שלנו\". את האירועים עורכים באתר בלבד: שינויים שנעשים כאן לא נשמרים באתר, ועלולים להימחק בעדכון הבא."
+    "calendarDescription": "האירועים של OurCalendar. את האירועים עורכים באתר בלבד: שינויים שנעשים כאן לא נשמרים באתר, ועלולים להימחק בעדכון הבא."
   }
 }
