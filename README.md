@@ -268,6 +268,26 @@ Console, and a login page that says what the site is and links to the privacy po
 If it happens again, request a review in Search Console > Security issues. The lasting
 fix is a custom domain instead of `onrender.com`.
 
+## Security
+
+- **Who gets in:** only the two Google accounts in `USER_EMAIL_DOR` and `USER_EMAIL_MAAYAN`.
+  Every page, Server Action and API route checks the session on the server; the proxy's
+  redirect to `/login` is only a shortcut.
+- **Secrets** live only in environment variables (`.env` locally, Render in production,
+  and `CRON_SECRET` as a GitHub Actions secret). Google refresh tokens are stored
+  encrypted (AES-GCM, `TOKEN_ENCRYPTION_KEY`), and logs carry Google's status and
+  reason only, never a token.
+- **Connecting Google** uses a `state` and PKCE, kept in an httpOnly cookie for ten
+  minutes; the jobs route compares its secret in constant time.
+- **Headers** on every response (`next.config.ts`): no framing by any site
+  (`frame-ancestors 'none'`, `X-Frame-Options`), HSTS, `nosniff`, a strict referrer
+  policy, no camera, microphone or location, and no `x-powered-by`.
+- **Dependencies:** `npm audit` is clean. `overrides` in `package.json` pin two
+  development-time packages to fixed versions until their parents update: `effect`
+  (used by Prisma's config loader; GHSA-7589-6fvf-x4pw) and `typescript-eslint` (its
+  `minimatch`; GHSA-g3hv-75wg-m249). Remove each once `prisma` or `eslint-config-next`
+  depends on a fixed version.
+
 ## Project structure
 
 ```
