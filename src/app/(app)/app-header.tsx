@@ -18,7 +18,12 @@ export async function AppHeader({ displayName, color, exportNeedsAction }: Props
     <Box as="header" borderBottomWidth="1px" px={{ base: "4", md: "6" }} py="3">
       <HStack justify="space-between" maxW="6xl" mx="auto" gap="4" wrap="wrap">
         <HStack gap="6">
-          <Heading size="lg">{t("app.name")}</Heading>
+          <HStack gap="2">
+            {/* The logo, next to the name that says it (spec 8.1). */}
+            {/* eslint-disable-next-line @next/next/no-img-element -- a small SVG, nothing to optimize */}
+            <img src="/logo.svg" alt="" width={28} height={28} />
+            <Heading size="lg">{t("app.name")}</Heading>
+          </HStack>
           <NavLinks
             label={t("header.nav")}
             links={[

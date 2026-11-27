@@ -56,6 +56,28 @@ our phones.
   (AES-256-GCM) with `TOKEN_ENCRYPTION_KEY`. Edits made in Google are overwritten by the
   next export.
 
+## Installing on a phone
+
+OurCalendar installs as an app (a PWA, spec 8.1): it gets its own icon on the home screen
+and opens in its own window, without the browser's bar.
+
+- **Android (Chrome):** open the site, then the menu (⋮) → "Install app" (or "Add to home
+  screen"). Chrome may also offer it in a banner.
+- **iPhone (Safari):** open the site, then Share (the square with an arrow) → "Add to Home
+  Screen" → "Add". The iPhone never offers it by itself.
+
+It still needs the internet: there is no offline mode.
+
+**The logo:** [`public/logo.svg`](public/logo.svg) is the only source: a white month page
+on the brand color, with three days marked in Dor's, Maayan's and the shared events'
+colors, in the same style as OurBasket's logo. The favicon is the SVG itself; every PNG
+(the 32×32 favicon, 192 and 512, the maskable 192 and 512 that Android crops to its own
+shape, and the iPhone's 180) is made from it by
+[`src/app/icons/[name]/route.tsx`](src/app/icons/[name]/route.tsx), at build time. To
+change the logo, replace the SVG: keep its background the brand color
+(`appConfig.themeColor`), and the drawing within the middle 80% circle. The manifest is
+[`src/app/manifest.ts`](src/app/manifest.ts).
+
 ## Tech stack
 
 | Area | Choice |
@@ -247,7 +269,8 @@ fix is a custom domain instead of `onrender.com`.
 src/
   app/                 routes: (app)/ = signed-in pages and their server actions,
                        login/, privacy/, api/ (auth, events, health, the export's
-                       connect and callback, and jobs/run for the scheduled trigger)
+                       connect and callback, and jobs/run for the scheduled trigger),
+                       icons/ (made from the logo), manifest.ts
   components/          providers (Chakra, Emotion), calendar/ (FullCalendar, URL
                        state, filters), events/ (event form, details, delete and
                        "which occurrences" dialogs)
@@ -260,6 +283,7 @@ src/
                        google-export/ (OAuth, token encryption, mapping to Google
                        events, running the jobs, connection state, triggers)
   proxy.ts             redirects to /login when there is no session cookie
+public/logo.svg        the logo, source of every icon
 messages/he.json       all UI text
 prisma/                schema and migrations
 tests/integration/     tests against the test database
