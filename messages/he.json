@@ -95,6 +95,7 @@
         "needsReauth": "נדרשת פעולה: הגישה ל-Google בוטלה או פגה. התחברו מחדש כדי להמשיך לייצא.",
         "needsAction": "נדרשת פעולה: היומן \"Our Calendar\" נמחק ב-Google."
       },
+      "progress": "{count, plural, one {נותר אירוע אחד} other {נותרו # אירועים}} לייצוא.",
       "failed": "{count, plural, one {אירוע אחד לא יוצא} other {# אירועים לא יוצאו}} בגלל שגיאה.",
       "setupFailed": {
         "calendar": "יצירת היומן \"Our Calendar\" ב-Google נכשלה בגלל שגיאה.",

@@ -95,6 +95,11 @@ async function apiError(response: Response): Promise<GoogleApiError> {
  * replaces it.
  */
 const accessTokens = new Map<string, { refreshToken: string; token: string; expiresAt: number }>();
+/**
+ * Requests for a new token under way, by connection and refresh token: jobs running at
+ * once share one request instead of each asking Google.
+ */
+const refreshing = new Map<string, Promise<string>>();
 
 /** Asks for a new token this long before the old one expires. */
 const EXPIRY_MARGIN_MS = 60_000;
@@ -111,16 +116,27 @@ export function connectionAccessToken(
     if (!fresh && cached?.refreshToken === stored && cached.expiresAt - EXPIRY_MARGIN_MS > now()) {
       return cached.token;
     }
-    let refreshToken: string;
+    const key = `${connection.id}:${stored}`;
+    const pending = refreshing.get(key);
+    if (pending) return pending;
+    const request = (async () => {
+      let refreshToken: string;
+      try {
+        refreshToken = decryptToken(stored, connection.userId);
+      } catch {
+        // Stored under another key (TOKEN_ENCRYPTION_KEY changed): connecting again fixes it.
+        throw new GoogleApiError(401, "token_unreadable");
+      }
+      const { accessToken, expiresAt } = await refreshAccessToken(refreshToken, fetchFn);
+      accessTokens.set(connection.id, { refreshToken: stored, token: accessToken, expiresAt });
+      return accessToken;
+    })();
+    refreshing.set(key, request);
     try {
-      refreshToken = decryptToken(stored, connection.userId);
-    } catch {
-      // Stored under another key (TOKEN_ENCRYPTION_KEY changed): connecting again fixes it.
-      throw new GoogleApiError(401, "token_unreadable");
+      return await request;
+    } finally {
+      refreshing.delete(key);
     }
-    const { accessToken, expiresAt } = await refreshAccessToken(refreshToken, fetchFn);
-    accessTokens.set(connection.id, { refreshToken: stored, token: accessToken, expiresAt });
-    return accessToken;
   };
 }
 

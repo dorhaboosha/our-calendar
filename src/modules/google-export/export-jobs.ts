@@ -45,7 +45,7 @@ type Target = GoogleExportTarget & { connection: GoogleConnection };
 /** Runs the export jobs that are due. Returns how many ran. */
 export function runExportJobs(
   apiFor: ApiFor,
-  options?: { limit?: number; now?: () => Date },
+  options?: Parameters<typeof runDueJobs>[1],
 ): Promise<number> {
   return runDueJobs((job) => handleExportJob(job, apiFor), options);
 }

@@ -2,6 +2,7 @@ import { Stack, Text } from "@chakra-ui/react";
 import { getFormatter, getTranslations } from "next-intl/server";
 import { requireUser } from "@/modules/auth/current-user";
 import { CONNECT_RESULTS, getExportStatus } from "@/modules/google-export/connection";
+import { FollowExport } from "./follow-export";
 import { GoogleExportControls } from "./google-export-controls";
 
 /**
@@ -22,6 +23,10 @@ export async function GoogleExport({ result }: { result: Promise<string | undefi
     <Stack gap="4" align="start">
       <Stack gap="1">
         <Text fontWeight="medium">{t(`states.${status.state}`)}</Text>
+        {status.state === "exporting" && status.pendingEvents > 0 && (
+          <Text>{t("progress", { count: status.pendingEvents })}</Text>
+        )}
+        <FollowExport running={status.running} />
         {status.setupFailed && (
           <Text color="fg.error">{t(`setupFailed.${status.setupFailed}`)}</Text>
         )}

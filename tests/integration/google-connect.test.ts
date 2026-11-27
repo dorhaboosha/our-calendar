@@ -157,6 +157,8 @@ describe("the export's state", () => {
     expect(await getExportStatus(dorId)).toEqual({
       state: "notConnected",
       pending: 0,
+      pendingEvents: 0,
+      running: false,
       failed: 0,
       setupFailed: null,
       lastSuccessfulExportAt: null,
@@ -164,7 +166,15 @@ describe("the export's state", () => {
       canDeleteCalendar: false,
     });
     await saveConnection(dorId, access());
-    expect(await getExportStatus(dorId)).toMatchObject({ state: "exporting", pending: 1 });
+    expect(await getExportStatus(dorId)).toMatchObject({
+      state: "exporting",
+      pending: 1,
+      pendingEvents: 0,
+      running: true,
+    });
+    // Only a retry waiting for later: still exporting, but not running now.
+    await prisma.exportJob.updateMany({ data: { nextAttemptAt: new Date(Date.now() + 60_000) } });
+    expect(await getExportStatus(dorId)).toMatchObject({ state: "exporting", running: false });
 
     // Creating the calendar failed: nothing was exported, so it isn't up to date.
     await prisma.exportJob.updateMany({ data: { status: "FAILED" } });
@@ -205,6 +215,19 @@ describe("the export's state", () => {
       failed: 1,
       setupFailed: "fullExport",
     });
+
+    // Events still to export are counted for the progress.
+    await prisma.exportJob.updateMany({
+      where: { eventId: event.id },
+      data: { status: "PENDING" },
+    });
+    expect(await getExportStatus(dorId)).toMatchObject({
+      state: "exporting",
+      pending: 1,
+      pendingEvents: 1,
+      running: true,
+    });
+    await prisma.exportJob.updateMany({ where: { eventId: event.id }, data: { status: "FAILED" } });
 
     await prisma.exportJob.deleteMany({ where: { eventId: null } });
     expect(await getExportStatus(dorId)).toMatchObject({

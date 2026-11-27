@@ -135,6 +135,17 @@ describe("access tokens", () => {
     expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 
+  it("jobs asking at once share one request for a new token", async () => {
+    const fetchFn = fakeFetch({ status: 200, json: { access_token: "shared", expires_in: 3600 } });
+    const accessToken = connectionAccessToken(connection("c4"), fetchFn);
+    expect(await Promise.all([accessToken(), accessToken(), accessToken()])).toEqual([
+      "shared",
+      "shared",
+      "shared",
+    ]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
   it("a refresh token that can't be read, or none, is revoked access", async () => {
     const unreadable = { ...connection("c2"), encryptedRefreshToken: "v1.a.b.c" };
     await expect(connectionAccessToken(unreadable, fakeFetch())()).rejects.toMatchObject({

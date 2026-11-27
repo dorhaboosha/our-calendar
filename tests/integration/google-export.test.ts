@@ -329,6 +329,8 @@ describe("failures", () => {
     const targetId = await connected();
     await create({ title: "א" });
     await create({ title: "ב" });
+    // Revoked access fails every call; the two events' jobs run at once.
+    google.failNext("insertEvent", status, reason);
     google.failNext("insertEvent", status, reason);
     await runAll();
 
@@ -336,16 +338,16 @@ describe("failures", () => {
       status: "ACTIVE",
       connection: { status: "NEEDS_REAUTH", lastError: `google:${status} ${reason}` },
     });
-    // The other event's job is dropped: connecting again exports everything.
-    expect(await jobs()).toEqual([
-      expect.objectContaining({
-        status: "FAILED",
-        lastError: `google:${status} ${reason} (reauth)`,
-      }),
-    ]);
+    // Both stop; connecting again exports everything.
+    const failed = expect.objectContaining({
+      status: "FAILED",
+      lastError: `google:${status} ${reason} (reauth)`,
+    });
+    expect(await jobs()).toEqual([failed, failed]);
     expect(google.only().events.size).toBe(0);
+    // Nothing more is queued until then.
     await create({ title: "ג" });
-    expect(await jobs()).toHaveLength(1);
+    expect(await jobs()).toHaveLength(2);
   });
 
   it("a calendar deleted in Google waits for the user", async () => {

@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
-import { connectExportInDatabase, db, expect, test } from "./fixtures";
+import { randomUUID } from "node:crypto";
+import { connectExportInDatabase, db, expect, insertEvent, test } from "./fixtures";
 
 // The Google export section of the settings page, and the header's pointer to it. No
 // call reaches Google: connecting is only a link, and the stored token is a dummy.
@@ -112,6 +113,43 @@ test("a deleted calendar: the header points to settings, where it is created aga
   await expect(page.getByRole("link", { name: /נדרשת פעולה/ })).toHaveCount(0);
   // Then the job runs, and fails on the dummy token (see the test above).
   await expect.poll(() => statusOf(dor.id)).toBe("NEEDS_REAUTH");
+});
+
+test("while exporting, the number of events left goes down on its own", async ({
+  page,
+  signInAs,
+}) => {
+  const dor = await signInAs("dor");
+  const targetId = await connectExportInDatabase(dor.id);
+  // Three events' jobs, due now but locked as if another run had them: the page's own
+  // run leaves them alone, and the test finishes them by hand.
+  const jobIds: string[] = [];
+  for (const title of ["א", "ב", "ג"]) {
+    const eventId = await insertEvent({
+      title,
+      owner: "dor",
+      start: "2026-11-05T10:00:00+02:00",
+      end: "2026-11-05T11:00:00+02:00",
+    });
+    const jobId = randomUUID();
+    jobIds.push(jobId);
+    await db.query(
+      `INSERT INTO "export_job" (id, type, "exportTargetId", "eventId", status, "attemptCount",
+         "nextAttemptAt", "lockedAt", "updatedAt")
+       VALUES ($1, 'SYNC_EVENT', $2, $3, 'PENDING', 0, now(), now(), now())`,
+      [jobId, targetId, eventId],
+    );
+  }
+  await page.goto("/settings");
+  const export_ = section(page);
+  await expect(export_.getByText("מחובר. ממתין לייצוא.")).toBeVisible();
+  await expect(export_.getByText("נותרו 3 אירועים לייצוא.")).toBeVisible();
+
+  await db.query('DELETE FROM "export_job" WHERE id = ANY($1)', [jobIds.slice(0, 2)]);
+  await expect(export_.getByText("נותר אירוע אחד לייצוא.")).toBeVisible();
+  await db.query('DELETE FROM "export_job"');
+  await expect(export_.getByText("מחובר. היומן ב-Google מעודכן.")).toBeVisible();
+  await expect(export_.getByText(/לייצוא\./)).toHaveCount(0);
 });
 
 test("access to Google revoked: connect again, and the calendar can't be deleted", async ({
