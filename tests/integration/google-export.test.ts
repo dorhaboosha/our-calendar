@@ -290,6 +290,95 @@ describe("exporting", () => {
   });
 });
 
+describe("occurrences changed by hand in Google", () => {
+  it("export again undoes them, and keeps the app's own changes", async () => {
+    const targetId = await connected();
+    const series = await create({ repeat: { frequency: "daily", end: "never" } });
+    const occurrence = (day: string) => `${series.googleId}_202611${day}T170000Z`;
+    await updateEvent(
+      series.id,
+      1,
+      draft({ startDate: "2026-11-06", endDate: "2026-11-06", title: "מאוחר" }),
+      dorId,
+      { scope: "this", originalStart: "2026-11-06T17:00:00.000Z" },
+    );
+    await runAll();
+
+    google.editOccurrenceByHand(occurrence("08"), {
+      summary: "שונה ב-Google",
+      start: { dateTime: "2026-11-08T08:00:00+02:00", timeZone: "Asia/Jerusalem" },
+    });
+    google.deleteOccurrenceByHand(occurrence("09"));
+    google.editOccurrenceByHand(occurrence("06"), { summary: "גם זה" });
+
+    // An ordinary change doesn't ask Google for its changed occurrences.
+    google.calls = [];
+    await create({ title: "אחר" });
+    await runAll();
+    expect(google.calls.filter((call) => call.startsWith("listChangedOccurrences"))).toEqual([]);
+    expect(google.event(occurrence("08"))).toMatchObject({ summary: "שונה ב-Google" });
+
+    await enqueueTargetJob(prisma, targetId, "FULL_RECONCILE");
+    await runAll();
+    const seriesValues = (day: string) => ({
+      summary: "ארוחת ערב",
+      status: "confirmed",
+      recurringEventId: series.googleId,
+      start: { dateTime: `2026-11-${day}T19:00:00+02:00` },
+      end: { dateTime: `2026-11-${day}T21:00:00+02:00` },
+    });
+    expect(google.event(occurrence("08"))).toMatchObject(seriesValues("08"));
+    expect(google.event(occurrence("09"))).toMatchObject(seriesValues("09"));
+    // Changed in the app too: the app's version.
+    expect(google.event(occurrence("06"))).toMatchObject({ summary: "מאוחר" });
+    // Only the app's own changes are kept as the series' changed occurrences.
+    expect(
+      (
+        await prisma.eventExportMapping.findFirstOrThrow({
+          where: { googleEventId: series.googleId },
+        })
+      ).exportedOccurrences,
+    ).toEqual(["2026-11-06T17:00:00.000Z"]);
+    expect(await jobs()).toEqual([]);
+  });
+
+  it("an all-day series, and an occurrence no longer in the series", async () => {
+    const targetId = await connected();
+    const series = await create({
+      isAllDay: true,
+      startDate: "2026-11-05",
+      endDate: "2026-11-05",
+      startTime: undefined,
+      endTime: undefined,
+      repeat: { frequency: "weekly", weekdays: ["TH"], end: "never" },
+    });
+    await runAll();
+    const twelfth = `${series.googleId}_20261112`;
+    google.editOccurrenceByHand(twelfth, { summary: "שונה ב-Google" });
+    // The series now repeats on Fridays: Thursday the 12th is no longer one of its days.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({
+        isAllDay: true,
+        startDate: "2026-11-06",
+        endDate: "2026-11-06",
+        startTime: undefined,
+        endTime: undefined,
+        repeat: { frequency: "weekly", weekdays: ["FR"], end: "never" },
+      }),
+      dorId,
+    );
+    await runAll();
+    expect(google.event(twelfth)).toMatchObject({ summary: "שונה ב-Google" });
+
+    await enqueueTargetJob(prisma, targetId, "FULL_RECONCILE");
+    await runAll();
+    expect(google.event(twelfth)).toMatchObject({ status: "cancelled" });
+    expect(await jobs()).toEqual([]);
+  });
+});
+
 describe("failures", () => {
   it.each([
     [503, "backendError"],

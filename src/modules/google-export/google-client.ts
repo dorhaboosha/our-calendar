@@ -3,7 +3,7 @@
 
 import type { GoogleConnection } from "@/generated/prisma/client";
 import type { ApiFor } from "./export-jobs";
-import { type GoogleCalendarApi, GoogleApiError } from "./google-api";
+import { type ChangedOccurrence, type GoogleCalendarApi, GoogleApiError } from "./google-api";
 import { type Fetch, REQUEST_TIMEOUT_MS, refreshAccessToken } from "./oauth";
 import { decryptToken } from "./token-crypto";
 
@@ -75,6 +75,38 @@ export function googleCalendarApi(
     },
     async deleteEvent(calendarId, eventId) {
       await call("DELETE", event(calendarId, eventId));
+    },
+    async listChangedOccurrences(calendarId) {
+      // Without expanding series, Google lists an occurrence that has changes of its own
+      // (or was deleted, with showDeleted) as an event of its own, with its series' id.
+      const changed: ChangedOccurrence[] = [];
+      let pageToken: string | undefined;
+      do {
+        const query = new URLSearchParams({
+          showDeleted: "true",
+          singleEvents: "false",
+          maxResults: "2500",
+          fields: "nextPageToken,items(recurringEventId,originalStartTime)",
+          ...(pageToken && { pageToken }),
+        });
+        const page = (await call("GET", `${calendar(calendarId)}/events?${query}`)) as {
+          nextPageToken?: string;
+          items?: {
+            recurringEventId?: string;
+            originalStartTime?: { date?: string; dateTime?: string };
+          }[];
+        };
+        for (const item of page.items ?? []) {
+          const { date, dateTime } = item.originalStartTime ?? {};
+          if (!item.recurringEventId || !(date || dateTime)) continue;
+          changed.push({
+            seriesId: item.recurringEventId,
+            originalStart: date ?? new Date(dateTime!).toISOString(),
+          });
+        }
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+      return changed;
     },
   };
 }

@@ -21,7 +21,13 @@ import {
   runDueJobs,
 } from "@/modules/jobs/outbox";
 import { getSharedColor, listCalendarUsers } from "@/modules/users/users";
-import { type GoogleCalendarApi, GoogleApiError, failureKind, isFailure } from "./google-api";
+import {
+  type ChangedOccurrence,
+  type GoogleCalendarApi,
+  GoogleApiError,
+  failureKind,
+  isFailure,
+} from "./google-api";
 import {
   type ExportContext,
   type ExportEvent,
@@ -66,7 +72,7 @@ export async function handleExportJob(job: ExportJob, apiFor: ApiFor): Promise<J
   const api = apiFor(target.connection);
   try {
     if (job.type === "CREATE_CALENDAR") await createCalendar(target, api);
-    else if (job.type === "FULL_RECONCILE") await reconcile(target);
+    else if (job.type === "FULL_RECONCILE") await reconcile(target, api);
     else await syncEvent(target, api, job.eventId!);
   } catch (error) {
     if (!(error instanceof GoogleApiError)) throw error;
@@ -147,12 +153,19 @@ async function createCalendar(target: Target, api: GoogleCalendarApi) {
  * Queues the export of every event to the target, past ones too, and the deletion of
  * every deleted event it still has. Each event is its own job, so one failure doesn't
  * hold up the rest, and the number of jobs left shows the progress.
+ *
+ * First it asks Google which occurrences of repeating events have changes of their own
+ * there, and adds them to the occurrences each series exported with changes: its job
+ * then sets them back to the app's version, so one changed or deleted by hand in Google
+ * is undone too.
  */
-async function reconcile(target: Target) {
-  if (!target.googleCalendarId) {
+async function reconcile(target: Target, api: GoogleCalendarApi) {
+  const calendarId = target.googleCalendarId;
+  if (!calendarId) {
     await enqueueTargetJob(prisma, target.id, "CREATE_CALENDAR");
     return;
   }
+  await addChangedOccurrences(target.id, await api.listChangedOccurrences(calendarId));
   const events = await prisma.event.findMany({
     where: {
       OR: [
@@ -168,6 +181,24 @@ async function reconcile(target: Target) {
     undefined,
     target.id,
   );
+}
+
+/** Adds occurrences changed in Google to their series' exported occurrences. */
+async function addChangedOccurrences(exportTargetId: string, changed: ChangedOccurrence[]) {
+  const bySeries = Map.groupBy(changed, (occurrence) => occurrence.seriesId);
+  if (bySeries.size === 0) return;
+  const mappings = await prisma.eventExportMapping.findMany({
+    where: { exportTargetId, status: "EXPORTED", googleEventId: { in: [...bySeries.keys()] } },
+  });
+  for (const mapping of mappings) {
+    const starts = bySeries.get(mapping.googleEventId)!.map((each) => each.originalStart);
+    const all = [...new Set([...mapping.exportedOccurrences, ...starts])].sort();
+    if (all.length === mapping.exportedOccurrences.length) continue;
+    await prisma.eventExportMapping.update({
+      where: { id: mapping.id },
+      data: { exportedOccurrences: all },
+    });
+  }
 }
 
 /** Brings the event's copy in Google to the event's current state. */
