@@ -38,6 +38,8 @@ blob-report/
 # Generated client (rebuilt by `prisma generate` on npm install)
 src/generated/
 prisma/*.db
+# Database backups (npm run db:backup): real data, never committed
+backups/
 prisma/*.db-journal
 *.sqlite
 *.sqlite3

@@ -5,6 +5,7 @@ import type { GoogleConnection } from "@/generated/prisma/client";
 import type { ApiFor } from "./export-jobs";
 import { type ChangedOccurrence, type GoogleCalendarApi, GoogleApiError } from "./google-api";
 import { type Fetch, REQUEST_TIMEOUT_MS, refreshAccessToken } from "./oauth";
+import { GOOGLE_REQUESTS_PER_MINUTE, slidingWindowLimiter } from "./rate-limit";
 import { decryptToken } from "./token-crypto";
 
 const API = "https://www.googleapis.com/calendar/v3";
@@ -12,10 +13,14 @@ const API = "https://www.googleapis.com/calendar/v3";
 /** Gives an access token; fresh: true asks for a new one (the old one was refused). */
 export type AccessToken = (options?: { fresh?: boolean }) => Promise<string>;
 
-/** The API with access tokens from accessToken. */
+/**
+ * The API with access tokens from accessToken. Each request first waits for acquire,
+ * which keeps the user's requests under Google's limit.
+ */
 export function googleCalendarApi(
   accessToken: AccessToken,
   fetchFn: Fetch = fetch,
+  acquire: () => Promise<void> = async () => {},
 ): GoogleCalendarApi {
   async function call(method: string, path: string, body?: unknown): Promise<unknown> {
     let response = await send(method, path, body, await accessToken());
@@ -29,6 +34,7 @@ export function googleCalendarApi(
   }
 
   async function send(method: string, path: string, body: unknown, token: string) {
+    await acquire();
     try {
       return await fetchFn(`${API}${path}`, {
         method,
@@ -172,6 +178,18 @@ export function connectionAccessToken(
   };
 }
 
+/** One limiter per connection: Google counts requests per user. */
+const limiters = new Map<string, () => Promise<void>>();
+
+function limiterFor(connectionId: string) {
+  let limiter = limiters.get(connectionId);
+  if (!limiter) {
+    limiter = slidingWindowLimiter(GOOGLE_REQUESTS_PER_MINUTE);
+    limiters.set(connectionId, limiter);
+  }
+  return limiter;
+}
+
 /** The real API for a connection, for runExportJobs. */
 export const googleApiFor: ApiFor = (connection) =>
-  googleCalendarApi(connectionAccessToken(connection));
+  googleCalendarApi(connectionAccessToken(connection), fetch, limiterFor(connection.id));

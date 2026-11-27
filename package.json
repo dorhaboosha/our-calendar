@@ -17,6 +17,7 @@
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate dev && prisma generate",
     "db:studio": "prisma studio",
+    "db:backup": "node scripts/backup-db.mjs",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",

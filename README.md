@@ -212,8 +212,11 @@ The service is described in [`render.yaml`](render.yaml) (a Render Blueprint):
 - Free plan, region Frankfurt, deploying `main` only after the CI checks pass.
 - The build runs `npm ci && npm run build && npx prisma migrate deploy`. Migrations run
   in the build because Render's pre-deploy command is paid-plan only.
-- Health check: `GET /api/health` answers `{"status":"ok"}` when the database is
-  reachable, and 503 otherwise.
+- Health check: `GET /api/health` answers `{"status":"ok"}` while the app is up. It
+  doesn't query the database: Render calls it every few seconds, which would keep
+  Neon's compute from ever sleeping.
+- Free-tier limits, how far we are from them, backups (`npm run db:backup`) and
+  monitoring: [`docs/operations.md`](docs/operations.md).
 
 Before the first deploy:
 
@@ -245,7 +248,8 @@ change (once the response is sent), on page views for retries that came due, and
   then, exports still run after every change; only the retries of failed ones wait for
   someone to open the app.
 - Each run wakes the service if it sleeps, so the free plan's 750 hours a month are
-  used faster; every 30 minutes stays within them (every 15 would not).
+  used faster; every 30 minutes stays within them (every 15 would not). It runs at 7
+  and 37 past the hour: GitHub delays scheduled runs at the start of the hour.
 
 ### Production
 
