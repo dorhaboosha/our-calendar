@@ -30,6 +30,10 @@ our phones.
 - **Colors** belong to owners: each user picks their own in settings, and either can
   change the shared events' color. Colors must stand out on white and differ clearly
   from each other.
+- **Up to date on return:** there is no real-time sync; the calendar loads its events
+  again when you come back to it (the tab or the installed app becomes visible) and when
+  the internet is back. A failed load is tried again on its own, after growing delays,
+  and meanwhile a notice under the header says there is no connection.
 - **Filters** by owner and by category, kept in the URL. The owner chips are also the
   color legend.
 - **Export to Google Calendar:** each of us connects our own Google account in settings.
@@ -66,7 +70,8 @@ and opens in its own window, without the browser's bar.
 - **iPhone (Safari):** open the site, then Share (the square with an arrow) → "Add to Home
   Screen" → "Add". The iPhone never offers it by itself.
 
-It still needs the internet: there is no offline mode.
+It still needs the internet: there is no offline mode, and without a connection a notice
+says so.
 
 **The logo:** [`public/logo.svg`](public/logo.svg) is the only source: a white month page
 on the brand color, with three days marked in Dor's, Maayan's and the shared events'

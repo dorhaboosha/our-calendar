@@ -64,6 +64,10 @@ test("every icon is a PNG of its size, without signing in", async ({ request }) 
     expect(await pngSize(response), name).toEqual([size, size]);
   }
   expect((await request.get("/icons/other.png")).status()).toBe(404);
+  // Browsers that still ask for /favicon.ico get the 32×32 icon.
+  const favicon = await request.get("/favicon.ico");
+  expect(favicon.status()).toBe(200);
+  expect(await pngSize(favicon)).toEqual([32, 32]);
   expect((await request.get("/logo.svg")).headers()["content-type"]).toContain("image/svg+xml");
 });
 

@@ -1,5 +1,7 @@
 import { Box, Center, Spinner } from "@chakra-ui/react";
+import { getTranslations } from "next-intl/server";
 import { Suspense, type ReactNode } from "react";
+import { ConnectionNotice } from "@/components/connection/connection-notice";
 import { requireUser } from "@/modules/auth/current-user";
 import { exportNeedsAction } from "@/modules/google-export/connection";
 import { exportWhenDue } from "@/modules/google-export/trigger";
@@ -24,7 +26,10 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 // Children render only after the check passes; without a session requireUser redirects.
 async function SignedIn({ children }: { children: ReactNode }) {
   const user = await requireUser();
-  const exportNeedsAttention = await exportNeedsAction(user.id);
+  const [exportNeedsAttention, t] = await Promise.all([
+    exportNeedsAction(user.id),
+    getTranslations("connection"),
+  ]);
   // Export retries that came due run when someone uses the app (and every 30 minutes).
   exportWhenDue();
   return (
@@ -34,6 +39,7 @@ async function SignedIn({ children }: { children: ReactNode }) {
         color={user.color}
         exportNeedsAction={exportNeedsAttention}
       />
+      <ConnectionNotice text={t("notice")} />
       {children}
     </Box>
   );

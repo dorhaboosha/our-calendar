@@ -146,6 +146,21 @@ test.describe("signed in", () => {
     expect(await violations(page), "form for one occurrence").toEqual([]);
   });
 
+  test("the notice without a connection", async ({ page, context, pageErrors }) => {
+    await page.goto("/?view=week");
+    await expect(page.getByTestId("calendar").getByText("רופא שיניים")).toBeVisible();
+    await context.setOffline(true);
+    await expect(page.getByRole("alert").filter({ hasText: "אין חיבור כרגע" })).toBeVisible();
+    expect(await violations(page)).toEqual([]);
+    await context.setOffline(false);
+    // Requests made while offline fail in the console; here that is expected.
+    pageErrors.splice(
+      0,
+      pageErrors.length,
+      ...pageErrors.filter((error) => !error.includes("ERR_INTERNET_DISCONNECTED")),
+    );
+  });
+
   test("settings", async ({ page }) => {
     await page.goto("/settings");
     await page.waitForLoadState("networkidle");

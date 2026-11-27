@@ -44,7 +44,6 @@ async function Calendar() {
     <CalendarView
       ownerColors={ownerColors}
       categoryLabels={categoryLabels}
-      loadErrorText={t("home.loadError")}
       goToDateLabel={t("home.goToDate")}
       newEventLabel={t("eventForm.newEvent")}
       currentUserKey={user.configKey}
