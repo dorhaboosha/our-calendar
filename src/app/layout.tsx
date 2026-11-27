@@ -4,6 +4,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Provider } from "@/components/provider";
 import { appConfig } from "@/config/app.config";
+import "./touch-targets.css";
 
 const heebo = Heebo({
   variable: "--font-heebo",

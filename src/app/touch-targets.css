@@ -1,0 +1,33 @@
+/* Touch screens: every control is at least 44×44 px, so it's easy to tap (spec 13, WCAG
+   2.5.5). A checkbox or radio counts with its whole row (its label), which gets the
+   height. Links outside running text too. Not FullCalendar's events: their size follows
+   their duration and the grid.
+   Outside any cascade layer on purpose: Chakra's styles are all in layers, which plain
+   CSS outranks, so these minimums win over the components' own sizes. */
+@media (pointer: coarse) {
+  button,
+  .chakra-button,
+  select,
+  input:not([type="checkbox"], [type="radio"]),
+  [role="tab"] {
+    min-height: 44px;
+  }
+
+  button,
+  .chakra-button,
+  [role="tab"] {
+    min-width: 44px;
+  }
+
+  label:has(> input:is([type="checkbox"], [type="radio"])) {
+    min-height: 44px;
+  }
+
+  .chakra-link:not(p *) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
