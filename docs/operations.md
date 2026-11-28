@@ -83,7 +83,29 @@ All read-only:
 - **GitHub:** Actions > Export jobs: recent runs, and whether the workflow is enabled.
 - **Google Cloud:** APIs & Services > Google Calendar API > Metrics and Quotas.
 
-Measured use is recorded in the spec's decision log when checked.
+Measured use is recorded below and in the spec's decision log when checked.
+
+### Measured use
+
+**2026-11-28** (the month so far; the export to Google has run since 2026-11-25):
+
+| Service        | Used                                                                          | Limit                        |
+| -------------- | ----------------------------------------------------------------------------- | ---------------------------- |
+| Render         | 43.22 free instance hours (the whole workspace); 68 MB bandwidth; 14 build minutes; $0 | 750 hours; 5 GB; 500 minutes |
+| Neon           | 5.41 CU-hours; 32.12 MB storage; 2.28 MB network transfer; compute 0.25–2 CU, scales to zero after 5 minutes | 100 CU-hours; 1 GB; 5 GB     |
+| GitHub Actions | Export jobs: 8 runs since 2026-11-26 (one by hand), 6 succeeded; the 2 failures were before the `CRON_SECRET` repository secret was set | free                         |
+| Google         | 39 Calendar API requests in 7 days; 1 error (410: deleting an event already gone, which counts as done) | 600 a minute per user        |
+
+- **The Render workspace is shared:** three other free web services of the same owner
+  run in it and share the 750 hours. So far all of them together used 43 hours.
+- **GitHub ran the schedule far less often than asked:** `*/30` should be 48 runs a day,
+  but it ran about every 8 hours (7 scheduled runs from 26 to 28 November). That is why Render used so
+  few hours: the estimate above assumes a wake-up every 30 minutes. Exports after
+  changes don't depend on it, and every page view runs what is due; only retries of
+  failed exports wait longer when nobody opens the app. The schedule moves to 7 and 37
+  minutes past with Phase 5; check again a few days later. If it still runs only a few
+  times a day, a free external scheduler (such as cron-job.org) calling the same
+  endpoint with the same secret is the fallback.
 
 ## Backups and restore
 

@@ -5,11 +5,14 @@ Each of us sees both calendars in one place, and events are exported automatical
 dedicated "Our Calendar" calendar in each person's Google account, so they show up on
 our phones.
 
-> **Status:** Phase 4 (the export to Google Calendar) is done, on top of the repeating
-> events of Phase 3 and the calendar, events and filters of Phase 2. Next: hardening and
-> release (Phase 5: home-screen install, refresh on return, touch targets). See
-> [`Project Spec.md`](Project%20Spec.md) for the full spec and decision log (Hebrew),
-> and [`docs/discovery.md`](docs/discovery.md) for the Phase 0 discovery report.
+> **Status:** all five phases are done: the calendar, events and filters (Phase 2),
+> repeating events (Phase 3), the export to Google Calendar (Phase 4), and hardening and
+> release (Phase 5: home-screen install, refresh on return, touch targets, faster export,
+> security headers, backups). See [`Project Spec.md`](Project%20Spec.md) for the full
+> spec and decision log (Hebrew), [`docs/acceptance.md`](docs/acceptance.md) for where
+> each acceptance criterion is checked, [`docs/operations.md`](docs/operations.md) for
+> free-tier limits, backups and monitoring, and [`docs/discovery.md`](docs/discovery.md)
+> for the Phase 0 discovery report.
 
 ## What it does
 

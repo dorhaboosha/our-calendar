@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, insertEvent, test } from "./fixtures";
+import { db, expect, insertEvent, test } from "./fixtures";
 
 // Loading the events again on return, retrying a failed load (spec 4.5), and the notice
 // shown without a connection (spec 8.1). The clock is fixed to Thursday 5 November 2026
@@ -130,6 +130,38 @@ test("offline shows the notice, and back online loads the events again @mobile",
   await context.setOffline(false);
   await expect(event(page, "סרט")).toBeVisible();
   await expect(notice(page)).toHaveCount(0);
+  dropOfflineErrors(pageErrors);
+});
+
+test("saving without a connection fails and keeps the form, and nothing is sent later", async ({
+  page,
+  context,
+  pageErrors,
+}) => {
+  await page.goto("/?view=week");
+  await expect(event(page, "רופא שיניים")).toBeVisible();
+  await page.getByRole("button", { name: "אירוע חדש" }).click();
+  const form = page.getByRole("dialog", { name: "אירוע חדש" });
+  await form.getByLabel("כותרת", { exact: true }).fill("ארוחת ערב");
+
+  await context.setOffline(true);
+  await form.getByRole("button", { name: "שמירה" }).click();
+  await expect(form).toContainText("השמירה נכשלה. בדקו את החיבור לאינטרנט ונסו שוב.");
+  await expect(form.getByLabel("כותרת", { exact: true })).toHaveValue("ארוחת ערב");
+
+  // Back online, the failed save is not sent on its own.
+  await context.setOffline(false);
+  await expect(notice(page)).toHaveCount(0);
+  await page.waitForTimeout(1000);
+  const titles = async () =>
+    (await db.query(`SELECT title FROM "event" ORDER BY title`)).rows.map((row) => row.title);
+  expect(await titles()).toEqual(["רופא שיניים"]);
+
+  // Saving again, online, works.
+  await form.getByRole("button", { name: "שמירה" }).click();
+  await expect(form).toBeHidden();
+  await expect(event(page, "ארוחת ערב")).toBeVisible();
+  expect(await titles()).toEqual(["ארוחת ערב", "רופא שיניים"]);
   dropOfflineErrors(pageErrors);
 });
 
