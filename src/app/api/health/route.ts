@@ -1,21 +1,12 @@
 import { connection } from "next/server";
-import { prisma } from "@/lib/prisma";
 
-// Render's health check: the app is up and can reach the database.
-// Public, so it reveals nothing beyond ok / not ok.
+// Render's health check: the app's process is up and answering. It doesn't touch the
+// database: Render calls it every few seconds while the service is awake, and a query
+// each time would keep Neon's compute from ever scaling to zero, using up the free
+// plan's compute hours (docs/operations.md). Public, so it reveals nothing beyond ok.
 export async function GET() {
   // Run on every request. Without request-time data, Cache Components would
   // prerender this handler once at build time.
   await connection();
-
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    return Response.json({ status: "ok" }, { headers: { "Cache-Control": "no-store" } });
-  } catch (error) {
-    console.error("Health check: database unreachable", error);
-    return Response.json(
-      { status: "error" },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
-    );
-  }
+  return Response.json({ status: "ok" }, { headers: { "Cache-Control": "no-store" } });
 }

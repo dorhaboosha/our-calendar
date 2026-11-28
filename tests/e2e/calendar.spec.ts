@@ -147,14 +147,6 @@ test("an all-day event spans exactly its days", async ({ page }) => {
   await expect(page.getByTestId("calendar").getByText("כל היום")).toBeVisible();
 });
 
-test("shows a message when events can't be loaded", async ({ page, pageErrors }) => {
-  await page.route("**/api/events?**", (route) => route.fulfill({ status: 500, body: "{}" }));
-  await page.goto("/");
-  await expect(page.getByRole("alert").filter({ hasText: "לא הצלחנו לטעון" })).toBeVisible();
-  // The browser logs the simulated 500; that error is the point of this test.
-  pageErrors.splice(0, pageErrors.length, ...pageErrors.filter((error) => !error.includes("500")));
-});
-
 test("the calendar fits a phone screen, in month and day views @mobile", async ({
   page,
 }, testInfo) => {

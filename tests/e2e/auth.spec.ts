@@ -8,8 +8,8 @@ test.describe("signed out", () => {
     }
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
     await expect(page.locator("html")).toHaveAttribute("lang", "he");
-    await expect(page).toHaveTitle("היומן שלנו");
-    await expect(page.getByRole("heading", { name: "ברוכים הבאים ליומן שלנו" })).toBeVisible();
+    await expect(page).toHaveTitle("OurCalendar");
+    await expect(page.getByRole("heading", { name: "ברוכים הבאים ל-OurCalendar" })).toBeVisible();
     await expect(page.getByRole("button", { name: "התחברות עם Google" })).toBeVisible();
   });
 

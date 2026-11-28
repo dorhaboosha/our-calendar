@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "היומן שלנו",
+    "name": "OurCalendar",
     "description": "יומן משותף לדור ומעיין"
   },
   "common": {
@@ -11,7 +11,7 @@
     "saved": "נשמר"
   },
   "login": {
-    "title": "ברוכים הבאים ליומן שלנו",
+    "title": "ברוכים הבאים ל-OurCalendar",
     "subtitle": "התחברו עם חשבון Google כדי להמשיך.",
     "about": "יומן פרטי ומשותף של דור ומעיין. רק שני החשבונות שלנו יכולים להיכנס.",
     "googleNote": "הכניסה מתבצעת בדף ההתחברות הרשמי של Google. האתר הזה לא מבקש ולא שומר סיסמאות.",
@@ -30,9 +30,11 @@
     "home": "יומן",
     "settings": "הגדרות"
   },
+  "connection": {
+    "notice": "אין חיבור כרגע. כדי לראות אירועים עדכניים ולשמור שינויים צריך חיבור לאינטרנט. ננסה להתחבר שוב לבד."
+  },
   "home": {
     "title": "היומן",
-    "loadError": "לא הצלחנו לטעון את האירועים. נסו לרענן את הדף.",
     "goToDate": "מעבר לתאריך",
     "filters": {
       "owners": "אירועים של",
@@ -60,7 +62,7 @@
     },
     "googleExport": {
       "title": "ייצוא ל-Google Calendar",
-      "help": "האתר ייצור בחשבון Google שלך יומן נפרד בשם \"Our Calendar\" ויעדכן בו את כל האירועים של היומן המשותף (האישיים של שניכם והמשותפים), כך שתראו אותם גם בטלפון. ההרשאה מאפשרת לאתר לגשת רק ליומנים שהוא עצמו יוצר, ולא ליומנים האחרים שלך. את האירועים עורכים כאן באתר בלבד: שינויים ביומן ב-Google לא מגיעים לאתר. \"ייצא מחדש ל-Google\" מחזיר אירוע שנערך או נמחק שם לגרסה של האתר, אבל לא מופע בודד של אירוע חוזר שנערך רק שם ולא שונה גם באתר.",
+      "help": "האתר ייצור בחשבון Google שלך יומן נפרד בשם \"Our Calendar\" ויעדכן בו את כל האירועים של היומן המשותף (האישיים של שניכם והמשותפים), כך שתראו אותם גם בטלפון. ההרשאה מאפשרת לאתר לגשת רק ליומנים שהוא עצמו יוצר, ולא ליומנים האחרים שלך. את האירועים עורכים כאן באתר בלבד: שינויים ביומן ב-Google לא מגיעים לאתר. \"ייצא מחדש ל-Google\" מחזיר לגרסה של האתר כל אירוע שנערך או נמחק שם, גם מופע בודד של אירוע חוזר.",
       "connect": "חבר ייצוא ל-Google Calendar",
       "reconnect": "התחברות מחדש ל-Google",
       "exportAgain": "ייצא מחדש ל-Google",
@@ -93,6 +95,7 @@
         "needsReauth": "נדרשת פעולה: הגישה ל-Google בוטלה או פגה. התחברו מחדש כדי להמשיך לייצא.",
         "needsAction": "נדרשת פעולה: היומן \"Our Calendar\" נמחק ב-Google."
       },
+      "progress": "{count, plural, one {נותר אירוע אחד} other {נותרו # אירועים}} לייצוא.",
       "failed": "{count, plural, one {אירוע אחד לא יוצא} other {# אירועים לא יוצאו}} בגלל שגיאה.",
       "setupFailed": {
         "calendar": "יצירת היומן \"Our Calendar\" ב-Google נכשלה בגלל שגיאה.",
@@ -109,8 +112,8 @@
   },
   "privacy": {
     "title": "מדיניות פרטיות",
-    "updated": "עודכן לאחרונה: 31 באוקטובר 2026",
-    "intro": "\"היומן שלנו\" הוא יומן פרטי ומשותף של שני אנשים, דור ומעיין. רק שני חשבונות Google מורשים יכולים להיכנס אליו. הדף הזה מסביר איזה מידע האתר שומר ולמה.",
+    "updated": "עודכן לאחרונה: 26 בנובמבר 2026",
+    "intro": "OurCalendar הוא יומן פרטי ומשותף של שני אנשים, דור ומעיין. רק שני חשבונות Google מורשים יכולים להיכנס אליו. הדף הזה מסביר איזה מידע האתר שומר ולמה.",
     "sections": {
       "collect": {
         "heading": "איזה מידע נשמר",
@@ -126,7 +129,7 @@
       },
       "limitedUse": {
         "heading": "Google API Services User Data Policy",
-        "body": "Our Calendar's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements."
+        "body": "OurCalendar's use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements."
       },
       "storage": {
         "heading": "איפה המידע נשמר",
@@ -268,6 +271,6 @@
   },
   "googleExport": {
     "ownedTitle": "{owner}: {title}",
-    "calendarDescription": "האירועים של \"היומן שלנו\". את האירועים עורכים באתר בלבד: שינויים שנעשים כאן לא נשמרים באתר, ועלולים להימחק בעדכון הבא."
+    "calendarDescription": "האירועים של OurCalendar. את האירועים עורכים באתר בלבד: שינויים שנעשים כאן לא נשמרים באתר, ועלולים להימחק בעדכון הבא."
   }
 }

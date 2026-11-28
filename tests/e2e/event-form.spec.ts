@@ -38,6 +38,17 @@ async function savedEvents() {
   return rows;
 }
 
+// Claude in Chrome once needed two clicks on "יום שלם" in the live check; a real mouse
+// click on the label, first thing after the form opens, ticks it.
+test('the first click on "יום שלם" ticks it @mobile', async ({ page }) => {
+  await page.goto("/");
+  await openNewEvent(page);
+  await expect(field(page, "כותרת")).toBeFocused();
+  const box = (await dialog(page).getByText("יום שלם", { exact: true }).boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(dialog(page).getByRole("checkbox", { name: "יום שלם" })).toBeChecked();
+});
+
 test("the button opens the form with sensible defaults", async ({ page }) => {
   await page.goto("/?view=month");
   await openNewEvent(page);

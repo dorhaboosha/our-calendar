@@ -128,7 +128,7 @@ describe("exporting", () => {
 
     const calendar = google.only();
     expect(calendar).toMatchObject({ summary: "Our Calendar", timeZone: "Asia/Jerusalem" });
-    expect(calendar.description).toContain("היומן שלנו");
+    expect(calendar.description).toContain("OurCalendar");
     expect(google.event(old.googleId)).toMatchObject({ summary: "יום הולדת", status: "confirmed" });
     expect(google.event(dentist.googleId)).toMatchObject({ summary: "דור: רופא שיניים" });
     expect(calendar.events.size).toBe(2);
@@ -290,6 +290,127 @@ describe("exporting", () => {
   });
 });
 
+describe("occurrences changed by hand in Google", () => {
+  it("export again undoes them, and keeps the app's own changes", async () => {
+    const targetId = await connected();
+    const daily = { frequency: "daily", end: "never" } as const;
+    const series = await create({ repeat: daily });
+    const occurrence = (day: string) => `${series.googleId}_202611${day}T170000Z`;
+    await updateEvent(
+      series.id,
+      1,
+      draft({ startDate: "2026-11-06", endDate: "2026-11-06", title: "מאוחר" }),
+      dorId,
+      { scope: "this", originalStart: "2026-11-06T17:00:00.000Z" },
+    );
+    await runAll();
+
+    google.editOccurrenceByHand(occurrence("08"), {
+      summary: "שונה ב-Google",
+      start: { dateTime: "2026-11-08T08:00:00+02:00", timeZone: "Asia/Jerusalem" },
+    });
+    google.deleteOccurrenceByHand(occurrence("09"));
+    google.editOccurrenceByHand(occurrence("06"), { summary: "גם זה" });
+
+    // An ordinary change doesn't ask Google for its changed occurrences.
+    google.calls = [];
+    await create({ title: "אחר" });
+    await runAll();
+    expect(google.calls.filter((call) => call.startsWith("listChangedOccurrences"))).toEqual([]);
+    expect(google.event(occurrence("08"))).toMatchObject({ summary: "שונה ב-Google" });
+
+    await enqueueTargetJob(prisma, targetId, "FULL_RECONCILE");
+    await runAll();
+    const seriesValues = (day: string) => ({
+      summary: "ארוחת ערב",
+      status: "confirmed",
+      recurringEventId: series.googleId,
+      start: { dateTime: `2026-11-${day}T19:00:00+02:00` },
+      end: { dateTime: `2026-11-${day}T21:00:00+02:00` },
+    });
+    expect(google.event(occurrence("08"))).toMatchObject(seriesValues("08"));
+    expect(google.event(occurrence("09"))).toMatchObject(seriesValues("09"));
+    // Changed in the app too: the app's version.
+    expect(google.event(occurrence("06"))).toMatchObject({ summary: "מאוחר" });
+    // Google keeps the ones set back as occurrences of their own, so they stay on the
+    // series' list.
+    const exportedOccurrences = async () =>
+      (
+        await prisma.eventExportMapping.findFirstOrThrow({
+          where: { googleEventId: series.googleId },
+        })
+      ).exportedOccurrences;
+    expect(await exportedOccurrences()).toEqual([
+      "2026-11-06T17:00:00.000Z",
+      "2026-11-08T17:00:00.000Z",
+      "2026-11-09T17:00:00.000Z",
+    ]);
+    expect(await jobs()).toEqual([]);
+
+    // A later change to the series reaches them too.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({ title: "ארוחה", repeat: daily }),
+      dorId,
+    );
+    await runAll();
+    expect(google.event(occurrence("08"))).toMatchObject({ summary: "ארוחה" });
+    expect(google.event(occurrence("09"))).toMatchObject({ summary: "ארוחה" });
+    expect(google.event(occurrence("06"))).toMatchObject({ summary: "מאוחר" });
+
+    // New times: no old copy is left behind.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({ title: "ארוחה", repeat: daily, startTime: "20:00", endTime: "22:00" }),
+      dorId,
+    );
+    await runAll();
+    for (const day of ["06", "08", "09"]) {
+      expect(google.event(occurrence(day))).toMatchObject({ status: "cancelled" });
+    }
+    expect(await exportedOccurrences()).toEqual([]);
+    expect(await jobs()).toEqual([]);
+  });
+
+  it("an all-day series, and an occurrence no longer in the series", async () => {
+    const targetId = await connected();
+    const series = await create({
+      isAllDay: true,
+      startDate: "2026-11-05",
+      endDate: "2026-11-05",
+      startTime: undefined,
+      endTime: undefined,
+      repeat: { frequency: "weekly", weekdays: ["TH"], end: "never" },
+    });
+    await runAll();
+    const twelfth = `${series.googleId}_20261112`;
+    google.editOccurrenceByHand(twelfth, { summary: "שונה ב-Google" });
+    // The series now repeats on Fridays: Thursday the 12th is no longer one of its days.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({
+        isAllDay: true,
+        startDate: "2026-11-06",
+        endDate: "2026-11-06",
+        startTime: undefined,
+        endTime: undefined,
+        repeat: { frequency: "weekly", weekdays: ["FR"], end: "never" },
+      }),
+      dorId,
+    );
+    await runAll();
+    expect(google.event(twelfth)).toMatchObject({ summary: "שונה ב-Google" });
+
+    await enqueueTargetJob(prisma, targetId, "FULL_RECONCILE");
+    await runAll();
+    expect(google.event(twelfth)).toMatchObject({ status: "cancelled" });
+    expect(await jobs()).toEqual([]);
+  });
+});
+
 describe("failures", () => {
   it.each([
     [503, "backendError"],
@@ -329,6 +450,8 @@ describe("failures", () => {
     const targetId = await connected();
     await create({ title: "א" });
     await create({ title: "ב" });
+    // Revoked access fails every call; the two events' jobs run at once.
+    google.failNext("insertEvent", status, reason);
     google.failNext("insertEvent", status, reason);
     await runAll();
 
@@ -336,16 +459,16 @@ describe("failures", () => {
       status: "ACTIVE",
       connection: { status: "NEEDS_REAUTH", lastError: `google:${status} ${reason}` },
     });
-    // The other event's job is dropped: connecting again exports everything.
-    expect(await jobs()).toEqual([
-      expect.objectContaining({
-        status: "FAILED",
-        lastError: `google:${status} ${reason} (reauth)`,
-      }),
-    ]);
+    // Both stop; connecting again exports everything.
+    const failed = expect.objectContaining({
+      status: "FAILED",
+      lastError: `google:${status} ${reason} (reauth)`,
+    });
+    expect(await jobs()).toEqual([failed, failed]);
     expect(google.only().events.size).toBe(0);
+    // Nothing more is queued until then.
     await create({ title: "ג" });
-    expect(await jobs()).toHaveLength(1);
+    expect(await jobs()).toHaveLength(2);
   });
 
   it("a calendar deleted in Google waits for the user", async () => {

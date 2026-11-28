@@ -24,6 +24,7 @@ import timeGridPlugin from "@fullcalendar/react/timegrid";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { appConfig } from "@/config/app.config";
+import { reportRequest } from "@/components/connection/connection-state";
 import { DeleteEventDialog } from "@/components/events/delete-event-dialog";
 import { EventDetailsDialog } from "@/components/events/event-details-dialog";
 import { EventFormDialog } from "@/components/events/event-form-dialog";
@@ -43,6 +44,7 @@ import { textColorFor } from "@/modules/users/colors";
 import { CalendarFilterChips } from "./calendar-filters";
 import { type CalendarFilters, isVisible, readFilters, writeFilters } from "./filters";
 import { fullCalendarLocale } from "./locales";
+import { useRefreshOnReturn } from "./refresh";
 import {
   CALENDAR_VIEWS,
   PHONE_MAX_WIDTH,
@@ -56,7 +58,6 @@ export type CalendarProps = {
   ownerColors: Record<string, string>;
   /** Hebrew category label per category key. */
   categoryLabels: Record<string, string>;
-  loadErrorText: string;
   goToDateLabel: string;
   newEventLabel: string;
   /** The signed-in user: the default owner of a new event. */
@@ -67,6 +68,7 @@ const TIME_FORMAT = { hour: "2-digit", minute: "2-digit", hour12: false } as con
 // Timed events in the month view as colored blocks, like all-day events, not dots.
 const EVENT_DISPLAY = "block";
 const OWNER_KEYS = [...appConfig.users.map((user) => user.key), SHARED_OWNER];
+const ignoreFailure = () => {};
 
 /** A filtered-out event stays loaded, with display "none". */
 function displayFor(event: CalendarEvent, filters: CalendarFilters) {
@@ -91,7 +93,6 @@ type Panel =
 export function Calendar({
   ownerColors,
   categoryLabels,
-  loadErrorText,
   goToDateLabel,
   newEventLabel,
   currentUserKey,
@@ -106,7 +107,6 @@ export function Calendar({
       window.matchMedia(`(max-width: ${PHONE_MAX_WIDTH}px)`).matches,
     ),
   );
-  const [loadFailed, setLoadFailed] = useState(false);
   const [isTimeGrid, setIsTimeGrid] = useState(initial.view !== "month");
   const [currentDate, setCurrentDate] = useState(
     initial.date ?? toLocal(new Date(), appConfig.timeZone).date,
@@ -152,7 +152,10 @@ export function Calendar({
 
   const [panel, setPanel] = useState<Panel | null>(null);
   const closePanel = () => setPanel(null);
-  const refetchEvents = () => calendarRef.current?.getApi().refetchEvents();
+  const refetchEvents = useCallback(() => calendarRef.current?.getApi().refetchEvents(), []);
+  // Loads again on return and when back online, and retries a failed load (spec 4.5).
+  // Open windows and typed text stay: only the events on screen are replaced.
+  const refresher = useRefreshOnReturn(refetchEvents);
 
   // After a save: if the filters would hide the event just saved, show its owner and
   // category again, so it doesn't look as if the save failed.
@@ -261,22 +264,42 @@ export function Calendar({
     [pickedDate],
   );
 
+  // The latest load: an earlier one that ends after it doesn't report how it went.
+  const latestLoad = useRef(0);
+
   // Loads the events of the dates on screen; FullCalendar calls it on every navigation.
   const fetchEvents = useCallback(
     async (info: EventSourceFuncInfo): Promise<EventInput[]> => {
+      const load = ++latestLoad.current;
+      const isLatest = () => load === latestLoad.current;
+      refresher.loadStarted();
       const query = new URLSearchParams({
         start: info.start.toISOString(),
         end: info.end.toISOString(),
       });
-      const response = await fetch(`/api/events?${query}`, { cache: "no-store" });
-      if (response.status === 401) {
-        // The session ended (expired, or signed out in another tab).
-        window.location.replace("/login");
-        return [];
+      let events: CalendarEvent[];
+      try {
+        const response = await fetch(`/api/events?${query}`, { cache: "no-store" });
+        if (response.status === 401) {
+          // The session ended (expired, or signed out in another tab).
+          window.location.replace("/login");
+          return [];
+        }
+        if (!response.ok) throw new Error(`GET /api/events: ${response.status}`);
+        ({ events } = (await response.json()) as { events: CalendarEvent[] });
+      } catch (error) {
+        // A failed load (no connection, or the server down or waking up): the notice
+        // under the header says so until a retry works.
+        if (isLatest()) {
+          refresher.loadFailed();
+          reportRequest(false);
+        }
+        throw error;
       }
-      if (!response.ok) throw new Error(`GET /api/events: ${response.status}`);
-      const { events } = (await response.json()) as { events: CalendarEvent[] };
-      setLoadFailed(false);
+      if (isLatest()) {
+        refresher.loadSucceeded();
+        reportRequest(true);
+      }
       return events.map((event) => {
         const color = ownerColors[event.owner] ?? appConfig.sharedColor;
         return {
@@ -292,7 +315,7 @@ export function Calendar({
         };
       });
     },
-    [ownerColors],
+    [ownerColors, refresher],
   );
 
   // Time, title, and the category as text, so meaning never depends on color alone.
@@ -402,11 +425,6 @@ export function Calendar({
           onStale={refetchEvents}
         />
       )}
-      {loadFailed && (
-        <Text role="alert" color="fg.error" mb="3">
-          {loadErrorText}
-        </Text>
-      )}
       {/* FullCalendar keeps a hidden measuring element far to the left (left: -9909px).
           In a right-to-left page that overflows into a huge horizontal scroll, so the
           calendar clips it. "clip", unlike "hidden", keeps the sticky headers working. */}
@@ -427,7 +445,8 @@ export function Calendar({
             end: "dayGridMonth,timeGridWeek,timeGridDay",
           }}
           events={fetchEvents}
-          eventSourceFailure={() => setLoadFailed(true)}
+          // Failures are handled in fetchEvents; this keeps FullCalendar from logging them.
+          eventSourceFailure={ignoreFailure}
           eventContent={renderEvent}
           dayCellClass={pickedDateClass}
           dayLaneClass={pickedDateClass}

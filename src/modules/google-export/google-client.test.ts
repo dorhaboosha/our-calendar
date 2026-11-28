@@ -105,6 +105,43 @@ describe("the Calendar API calls", () => {
   });
 });
 
+describe("changed occurrences", () => {
+  it("lists every page, as the app's times, and leaves out events that aren't occurrences", async () => {
+    const fetchFn = fakeFetch(
+      {
+        status: 200,
+        json: {
+          nextPageToken: "page-2",
+          items: [
+            {
+              recurringEventId: "series1",
+              originalStartTime: { dateTime: "2026-11-08T19:00:00+02:00" },
+            },
+            {},
+          ],
+        },
+      },
+      {
+        status: 200,
+        json: {
+          items: [{ recurringEventId: "series2", originalStartTime: { date: "2026-11-12" } }],
+        },
+      },
+    );
+    const api = googleCalendarApi(async () => "token", fetchFn);
+    expect(await api.listChangedOccurrences("cal@group")).toEqual([
+      { seriesId: "series1", originalStart: "2026-11-08T17:00:00.000Z" },
+      { seriesId: "series2", originalStart: "2026-11-12" },
+    ]);
+    const first = new URL(request(fetchFn, 0).url as string);
+    expect(first.pathname).toBe("/calendar/v3/calendars/cal%40group/events");
+    expect(first.searchParams.get("showDeleted")).toBe("true");
+    expect(first.searchParams.get("singleEvents")).toBe("false");
+    expect(first.searchParams.has("pageToken")).toBe(false);
+    expect(new URL(request(fetchFn, 1).url as string).searchParams.get("pageToken")).toBe("page-2");
+  });
+});
+
 describe("access tokens", () => {
   beforeAll(() => {
     process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString("base64");
@@ -133,6 +170,17 @@ describe("access tokens", () => {
     now += 3600 * 1000 - 30_000;
     expect(await accessToken()).toBe("third");
     expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it("jobs asking at once share one request for a new token", async () => {
+    const fetchFn = fakeFetch({ status: 200, json: { access_token: "shared", expires_in: 3600 } });
+    const accessToken = connectionAccessToken(connection("c4"), fetchFn);
+    expect(await Promise.all([accessToken(), accessToken(), accessToken()])).toEqual([
+      "shared",
+      "shared",
+      "shared",
+    ]);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it("a refresh token that can't be read, or none, is revoked access", async () => {

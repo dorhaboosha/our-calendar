@@ -75,19 +75,25 @@ export async function enqueueTargetJob(
  * Takes up to limit jobs that are due, and locks them for this runner. Two runners at
  * once (a request and the periodic trigger) never take the same job: rows another
  * transaction is taking are skipped. A stale lock is taken over.
+ *
+ * The jobs are picked in a CTE, which Postgres runs once. Picked in "WHERE id IN
+ * (SELECT ... LIMIT ...)" instead, the subquery may run again for the same statement
+ * and, skipping the rows it just locked, take more than limit.
  */
 export async function claimJobs(limit: number, now = new Date()): Promise<ExportJob[]> {
   const staleBefore = new Date(now.getTime() - STALE_LOCK_MINUTES * MINUTE);
   return prisma.$queryRaw<ExportJob[]>`
+    WITH "due" AS (
+      SELECT "id" FROM "export_job"
+       WHERE "status" = 'PENDING' AND "nextAttemptAt" <= ${now}
+         AND ("lockedAt" IS NULL OR "lockedAt" < ${staleBefore})
+       ORDER BY "nextAttemptAt", "createdAt"
+       LIMIT ${limit}
+       FOR UPDATE SKIP LOCKED)
     UPDATE "export_job" SET "lockedAt" = ${now}
-     WHERE "id" IN (
-       SELECT "id" FROM "export_job"
-        WHERE "status" = 'PENDING' AND "nextAttemptAt" <= ${now}
-          AND ("lockedAt" IS NULL OR "lockedAt" < ${staleBefore})
-        ORDER BY "nextAttemptAt", "createdAt"
-        LIMIT ${limit}
-        FOR UPDATE SKIP LOCKED)
-    RETURNING *`;
+      FROM "due"
+     WHERE "export_job"."id" = "due"."id"
+    RETURNING "export_job".*`;
 }
 
 /**
@@ -141,16 +147,27 @@ export async function failJob(
 /** What a job's handler reports. */
 export type JobOutcome = { ok: true } | { ok: false; error: string; retry: boolean };
 
+/** How many event jobs run at once: a full export is many, and each waits on Google. */
+export const CONCURRENCY = 4;
+
 /**
- * Runs the jobs that are due, one at a time, with handle doing the work (the Google
- * export). A handler that throws counts as a temporary failure. Returns how many ran.
+ * Runs the jobs that are due, with handle doing the work (the Google export). Jobs for a
+ * whole target (creating its calendar, the full export) run first, one at a time, so
+ * the events' jobs taken with them see what they did. Then the events' jobs, up to
+ * concurrency at once: each is for a different event and target, so they don't touch
+ * each other's rows. A handler that throws counts as a temporary failure. Returns how
+ * many ran.
  */
 export async function runDueJobs(
   handle: (job: ExportJob) => Promise<JobOutcome>,
-  { limit = 20, now = () => new Date() }: { limit?: number; now?: () => Date } = {},
+  {
+    limit = 20,
+    concurrency = CONCURRENCY,
+    now = () => new Date(),
+  }: { limit?: number; concurrency?: number; now?: () => Date } = {},
 ): Promise<number> {
   const jobs = await claimJobs(limit, now());
-  for (const job of jobs) {
+  const run = async (job: ExportJob) => {
     let outcome: JobOutcome;
     try {
       outcome = await handle(job);
@@ -159,6 +176,13 @@ export async function runDueJobs(
     }
     if (outcome.ok) await completeJob(job);
     else await failJob(job, outcome.error, { retry: outcome.retry }, now());
-  }
+  };
+  for (const job of jobs.filter((each) => each.eventId === null)) await run(job);
+  const eventJobs = jobs.filter((each) => each.eventId !== null);
+  let next = 0;
+  const worker = async () => {
+    while (next < eventJobs.length) await run(eventJobs[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, eventJobs.length) }, worker));
   return jobs.length;
 }

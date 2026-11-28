@@ -208,6 +208,12 @@ describe("running jobs", () => {
     expect(await claimJobs(4, at(2))).toEqual([]);
   });
 
+  it("never takes more jobs than asked for", async () => {
+    await queued(30);
+    expect(await claimJobs(20, at(1))).toHaveLength(20);
+    expect(await claimJobs(20, at(1))).toHaveLength(10);
+  });
+
   it("takes only jobs that are due, and a lock left by a runner that died", async () => {
     await queued(1);
     expect(await claimJobs(5, new Date(at(0).getTime() - 1000))).toEqual([]);
@@ -277,6 +283,30 @@ describe("running jobs", () => {
       lockedAt: null,
     });
     expect(await claimJobs(1, at(3))).toHaveLength(1);
+  });
+
+  it("runs a whole target's job first, alone, then the events' jobs a few at a time", async () => {
+    const ids = await queued(10);
+    await enqueueTargetJob(prisma, targetId, "FULL_RECONCILE", at(0));
+    const order: string[] = [];
+    let running = 0;
+    let most = 0;
+    const ran = await runDueJobs(
+      async (job) => {
+        running++;
+        most = Math.max(most, running);
+        order.push(job.eventId ?? job.type);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        running--;
+        return { ok: true };
+      },
+      { concurrency: 3, now: () => at(1) },
+    );
+    expect(ran).toBe(11);
+    expect(order[0]).toBe("FULL_RECONCILE");
+    expect(new Set(order.slice(1))).toEqual(new Set(ids));
+    expect(most).toBe(3);
+    expect(await prisma.exportJob.count()).toBe(0);
   });
 
   it("runs due jobs with a handler, counting a throw as a temporary failure", async () => {

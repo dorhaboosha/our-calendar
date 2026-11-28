@@ -20,6 +20,13 @@ export class GoogleApiError extends Error {
 
 export type NewCalendar = { summary: string; description: string; timeZone: string };
 
+/**
+ * An occurrence of a repeating event that has changes of its own in Google, or was
+ * deleted there: seriesId is the series' Google id, originalStart where the rule puts
+ * the occurrence, in the app's format (an ISO instant from toISOString, or a date).
+ */
+export type ChangedOccurrence = { seriesId: string; originalStart: string };
+
 export interface GoogleCalendarApi {
   /** Creates a secondary calendar; returns its id. */
   createCalendar(calendar: NewCalendar): Promise<{ id: string }>;
@@ -40,6 +47,11 @@ export interface GoogleCalendarApi {
   ): Promise<void>;
   /** Deletes an event or an occurrence. 404 or 410 if it is already gone. */
   deleteEvent(calendarId: string, eventId: string): Promise<void>;
+  /**
+   * Every occurrence in the calendar with changes of its own, or deleted: the app's own
+   * changes, and ones made by hand in Google.
+   */
+  listChangedOccurrences(calendarId: string): Promise<ChangedOccurrence[]>;
 }
 
 /**

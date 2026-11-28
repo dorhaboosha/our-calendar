@@ -1,15 +1,18 @@
-# Our Calendar
+# OurCalendar
 
 A private shared calendar for two people (Dor and Maayan), in Hebrew and right-to-left.
 Each of us sees both calendars in one place, and events are exported automatically to a
 dedicated "Our Calendar" calendar in each person's Google account, so they show up on
 our phones.
 
-> **Status:** Phase 4 (the export to Google Calendar) is done, on top of the repeating
-> events of Phase 3 and the calendar, events and filters of Phase 2. Next: hardening and
-> release (Phase 5: home-screen install, refresh on return, touch targets). See
-> [`Project Spec.md`](Project%20Spec.md) for the full spec and decision log (Hebrew),
-> and [`docs/discovery.md`](docs/discovery.md) for the Phase 0 discovery report.
+> **Status:** all five phases are done: the calendar, events and filters (Phase 2),
+> repeating events (Phase 3), the export to Google Calendar (Phase 4), and hardening and
+> release (Phase 5: home-screen install, refresh on return, touch targets, faster export,
+> security headers, backups). See [`Project Spec.md`](Project%20Spec.md) for the full
+> spec and decision log (Hebrew), [`docs/acceptance.md`](docs/acceptance.md) for where
+> each acceptance criterion is checked, [`docs/operations.md`](docs/operations.md) for
+> free-tier limits, backups and monitoring, and [`docs/discovery.md`](docs/discovery.md)
+> for the Phase 0 discovery report.
 
 ## What it does
 
@@ -30,6 +33,10 @@ our phones.
 - **Colors** belong to owners: each user picks their own in settings, and either can
   change the shared events' color. Colors must stand out on white and differ clearly
   from each other.
+- **Up to date on return:** there is no real-time sync; the calendar loads its events
+  again when you come back to it (the tab or the installed app becomes visible) and when
+  the internet is back. A failed load is tried again on its own, after growing delays,
+  and meanwhile a notice under the header says there is no connection.
 - **Filters** by owner and by category, kept in the URL. The owner chips are also the
   color legend.
 - **Export to Google Calendar:** each of us connects our own Google account in settings.
@@ -55,6 +62,29 @@ our phones.
   come from the app's ids, so a retry never makes a copy. Refresh tokens are encrypted
   (AES-256-GCM) with `TOKEN_ENCRYPTION_KEY`. Edits made in Google are overwritten by the
   next export.
+
+## Installing on a phone
+
+OurCalendar installs as an app (a PWA, spec 8.1): it gets its own icon on the home screen
+and opens in its own window, without the browser's bar.
+
+- **Android (Chrome):** open the site, then the menu (⋮) → "Install app" (or "Add to home
+  screen"). Chrome may also offer it in a banner.
+- **iPhone (Safari):** open the site, then Share (the square with an arrow) → "Add to Home
+  Screen" → "Add". The iPhone never offers it by itself.
+
+It still needs the internet: there is no offline mode, and without a connection a notice
+says so.
+
+**The logo:** [`public/logo.svg`](public/logo.svg) is the only source: a white month page
+on the brand color, with three days marked in Dor's, Maayan's and the shared events'
+colors, in the same style as OurBasket's logo. The favicon is the SVG itself; every PNG
+(the 32×32 favicon, 192 and 512, the maskable 192 and 512 that Android crops to its own
+shape, and the iPhone's 180) is made from it by
+[`src/app/icons/[name]/route.tsx`](src/app/icons/[name]/route.tsx), at build time. To
+change the logo, replace the SVG: keep its background the brand color
+(`appConfig.themeColor`), and the drawing within the middle 80% circle. The manifest is
+[`src/app/manifest.ts`](src/app/manifest.ts).
 
 ## Tech stack
 
@@ -185,8 +215,11 @@ The service is described in [`render.yaml`](render.yaml) (a Render Blueprint):
 - Free plan, region Frankfurt, deploying `main` only after the CI checks pass.
 - The build runs `npm ci && npm run build && npx prisma migrate deploy`. Migrations run
   in the build because Render's pre-deploy command is paid-plan only.
-- Health check: `GET /api/health` answers `{"status":"ok"}` when the database is
-  reachable, and 503 otherwise.
+- Health check: `GET /api/health` answers `{"status":"ok"}` while the app is up. It
+  doesn't query the database: Render calls it every few seconds, which would keep
+  Neon's compute from ever sleeping.
+- Free-tier limits, how far we are from them, backups (`npm run db:backup`) and
+  monitoring: [`docs/operations.md`](docs/operations.md).
 
 Before the first deploy:
 
@@ -218,7 +251,8 @@ change (once the response is sent), on page views for retries that came due, and
   then, exports still run after every change; only the retries of failed ones wait for
   someone to open the app.
 - Each run wakes the service if it sleeps, so the free plan's 750 hours a month are
-  used faster; every 30 minutes stays within them (every 15 would not).
+  used faster; every 30 minutes stays within them (every 15 would not). It runs at 7
+  and 37 past the hour: GitHub delays scheduled runs at the start of the hour.
 
 ### Production
 
@@ -241,13 +275,34 @@ Console, and a login page that says what the site is and links to the privacy po
 If it happens again, request a review in Search Console > Security issues. The lasting
 fix is a custom domain instead of `onrender.com`.
 
+## Security
+
+- **Who gets in:** only the two Google accounts in `USER_EMAIL_DOR` and `USER_EMAIL_MAAYAN`.
+  Every page, Server Action and API route checks the session on the server; the proxy's
+  redirect to `/login` is only a shortcut.
+- **Secrets** live only in environment variables (`.env` locally, Render in production,
+  and `CRON_SECRET` as a GitHub Actions secret). Google refresh tokens are stored
+  encrypted (AES-GCM, `TOKEN_ENCRYPTION_KEY`), and logs carry Google's status and
+  reason only, never a token.
+- **Connecting Google** uses a `state` and PKCE, kept in an httpOnly cookie for ten
+  minutes; the jobs route compares its secret in constant time.
+- **Headers** on every response (`next.config.ts`): no framing by any site
+  (`frame-ancestors 'none'`, `X-Frame-Options`), HSTS, `nosniff`, a strict referrer
+  policy, no camera, microphone or location, and no `x-powered-by`.
+- **Dependencies:** `npm audit` is clean. `overrides` in `package.json` pin two
+  development-time packages to fixed versions until their parents update: `effect`
+  (used by Prisma's config loader; GHSA-7589-6fvf-x4pw) and `typescript-eslint` (its
+  `minimatch`; GHSA-g3hv-75wg-m249). Remove each once `prisma` or `eslint-config-next`
+  depends on a fixed version.
+
 ## Project structure
 
 ```
 src/
   app/                 routes: (app)/ = signed-in pages and their server actions,
                        login/, privacy/, api/ (auth, events, health, the export's
-                       connect and callback, and jobs/run for the scheduled trigger)
+                       connect and callback, and jobs/run for the scheduled trigger),
+                       icons/ (made from the logo), manifest.ts
   components/          providers (Chakra, Emotion), calendar/ (FullCalendar, URL
                        state, filters), events/ (event form, details, delete and
                        "which occurrences" dialogs)
@@ -260,6 +315,7 @@ src/
                        google-export/ (OAuth, token encryption, mapping to Google
                        events, running the jobs, connection state, triggers)
   proxy.ts             redirects to /login when there is no session cookie
+public/logo.svg        the logo, source of every icon
 messages/he.json       all UI text
 prisma/                schema and migrations
 tests/integration/     tests against the test database

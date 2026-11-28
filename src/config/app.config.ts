@@ -20,6 +20,8 @@ export type AppConfig = {
   intlLocale: string;
   direction: "rtl" | "ltr";
   timeZone: string;
+  /** The brand color: the logo's background (public/logo.svg) and the installed app's bar. */
+  themeColor: string;
   users: readonly UserConfig[];
   /** Default color of shared events; either user can change it in settings. */
   sharedColor: string;
@@ -34,6 +36,7 @@ export const appConfig = {
   intlLocale: "he-IL",
   direction: "rtl",
   timeZone: "Asia/Jerusalem",
+  themeColor: "#4338ca",
   users: [
     { key: "dor", displayName: "דור", defaultColor: "#1d4ed8" },
     { key: "maayan", displayName: "מעיין", defaultColor: "#be185d" },

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!--
+    OurCalendar's logo, and the one source of every icon (spec 8.1): the favicon, and the
+    installed app's icons, made from it by src/app/icons/[name]/route.tsx. To change the
+    logo, replace this file. Keep the background the brand color (appConfig.themeColor),
+    and the drawing within the middle 80% circle, which Android never crops.
+    A white month page in OurBasket's style: plain days are dots cut out in the brand
+    color, and three days are marked in Dor's, Maayan's and the shared events' colors.
+  -->
+  <rect width="512" height="512" rx="112" fill="#4338ca"/>
+  <rect x="120" y="132" width="272" height="64" rx="24" fill="#fff"/>
+  <path d="M188 96V150M324 96V150" stroke="#4338ca" stroke-width="60" stroke-linecap="round"/>
+  <path d="M188 96V150M324 96V150" stroke="#fff" stroke-width="32" stroke-linecap="round"/>
+  <rect x="120" y="216" width="272" height="176" rx="24" fill="#fff"/>
+  <g fill="#4338ca">
+    <circle cx="154" cy="246" r="11"/>
+    <circle cx="290" cy="246" r="11"/>
+    <circle cx="358" cy="246" r="11"/>
+    <circle cx="154" cy="304" r="11"/>
+    <circle cx="222" cy="304" r="11"/>
+    <circle cx="290" cy="304" r="11"/>
+    <circle cx="222" cy="362" r="11"/>
+    <circle cx="290" cy="362" r="11"/>
+    <circle cx="358" cy="362" r="11"/>
+  </g>
+  <rect x="200" y="224" width="44" height="44" rx="12" fill="#1d4ed8"/>
+  <rect x="336" y="282" width="44" height="44" rx="12" fill="#be185d"/>
+  <rect x="132" y="340" width="44" height="44" rx="12" fill="#047857"/>
+</svg>

@@ -3,8 +3,9 @@
 
 import type { GoogleConnection } from "@/generated/prisma/client";
 import type { ApiFor } from "./export-jobs";
-import { type GoogleCalendarApi, GoogleApiError } from "./google-api";
+import { type ChangedOccurrence, type GoogleCalendarApi, GoogleApiError } from "./google-api";
 import { type Fetch, REQUEST_TIMEOUT_MS, refreshAccessToken } from "./oauth";
+import { GOOGLE_REQUESTS_PER_MINUTE, slidingWindowLimiter } from "./rate-limit";
 import { decryptToken } from "./token-crypto";
 
 const API = "https://www.googleapis.com/calendar/v3";
@@ -12,10 +13,14 @@ const API = "https://www.googleapis.com/calendar/v3";
 /** Gives an access token; fresh: true asks for a new one (the old one was refused). */
 export type AccessToken = (options?: { fresh?: boolean }) => Promise<string>;
 
-/** The API with access tokens from accessToken. */
+/**
+ * The API with access tokens from accessToken. Each request first waits for acquire,
+ * which keeps the user's requests under Google's limit.
+ */
 export function googleCalendarApi(
   accessToken: AccessToken,
   fetchFn: Fetch = fetch,
+  acquire: () => Promise<void> = async () => {},
 ): GoogleCalendarApi {
   async function call(method: string, path: string, body?: unknown): Promise<unknown> {
     let response = await send(method, path, body, await accessToken());
@@ -29,6 +34,7 @@ export function googleCalendarApi(
   }
 
   async function send(method: string, path: string, body: unknown, token: string) {
+    await acquire();
     try {
       return await fetchFn(`${API}${path}`, {
         method,
@@ -76,6 +82,38 @@ export function googleCalendarApi(
     async deleteEvent(calendarId, eventId) {
       await call("DELETE", event(calendarId, eventId));
     },
+    async listChangedOccurrences(calendarId) {
+      // Without expanding series, Google lists an occurrence that has changes of its own
+      // (or was deleted, with showDeleted) as an event of its own, with its series' id.
+      const changed: ChangedOccurrence[] = [];
+      let pageToken: string | undefined;
+      do {
+        const query = new URLSearchParams({
+          showDeleted: "true",
+          singleEvents: "false",
+          maxResults: "2500",
+          fields: "nextPageToken,items(recurringEventId,originalStartTime)",
+          ...(pageToken && { pageToken }),
+        });
+        const page = (await call("GET", `${calendar(calendarId)}/events?${query}`)) as {
+          nextPageToken?: string;
+          items?: {
+            recurringEventId?: string;
+            originalStartTime?: { date?: string; dateTime?: string };
+          }[];
+        };
+        for (const item of page.items ?? []) {
+          const { date, dateTime } = item.originalStartTime ?? {};
+          if (!item.recurringEventId || !(date || dateTime)) continue;
+          changed.push({
+            seriesId: item.recurringEventId,
+            originalStart: date ?? new Date(dateTime!).toISOString(),
+          });
+        }
+        pageToken = page.nextPageToken;
+      } while (pageToken);
+      return changed;
+    },
   };
 }
 
@@ -95,6 +133,11 @@ async function apiError(response: Response): Promise<GoogleApiError> {
  * replaces it.
  */
 const accessTokens = new Map<string, { refreshToken: string; token: string; expiresAt: number }>();
+/**
+ * Requests for a new token under way, by connection and refresh token: jobs running at
+ * once share one request instead of each asking Google.
+ */
+const refreshing = new Map<string, Promise<string>>();
 
 /** Asks for a new token this long before the old one expires. */
 const EXPIRY_MARGIN_MS = 60_000;
@@ -111,19 +154,42 @@ export function connectionAccessToken(
     if (!fresh && cached?.refreshToken === stored && cached.expiresAt - EXPIRY_MARGIN_MS > now()) {
       return cached.token;
     }
-    let refreshToken: string;
+    const key = `${connection.id}:${stored}`;
+    const pending = refreshing.get(key);
+    if (pending) return pending;
+    const request = (async () => {
+      let refreshToken: string;
+      try {
+        refreshToken = decryptToken(stored, connection.userId);
+      } catch {
+        // Stored under another key (TOKEN_ENCRYPTION_KEY changed): connecting again fixes it.
+        throw new GoogleApiError(401, "token_unreadable");
+      }
+      const { accessToken, expiresAt } = await refreshAccessToken(refreshToken, fetchFn);
+      accessTokens.set(connection.id, { refreshToken: stored, token: accessToken, expiresAt });
+      return accessToken;
+    })();
+    refreshing.set(key, request);
     try {
-      refreshToken = decryptToken(stored, connection.userId);
-    } catch {
-      // Stored under another key (TOKEN_ENCRYPTION_KEY changed): connecting again fixes it.
-      throw new GoogleApiError(401, "token_unreadable");
+      return await request;
+    } finally {
+      refreshing.delete(key);
     }
-    const { accessToken, expiresAt } = await refreshAccessToken(refreshToken, fetchFn);
-    accessTokens.set(connection.id, { refreshToken: stored, token: accessToken, expiresAt });
-    return accessToken;
   };
+}
+
+/** One limiter per connection: Google counts requests per user. */
+const limiters = new Map<string, () => Promise<void>>();
+
+function limiterFor(connectionId: string) {
+  let limiter = limiters.get(connectionId);
+  if (!limiter) {
+    limiter = slidingWindowLimiter(GOOGLE_REQUESTS_PER_MINUTE);
+    limiters.set(connectionId, limiter);
+  }
+  return limiter;
 }
 
 /** The real API for a connection, for runExportJobs. */
 export const googleApiFor: ApiFor = (connection) =>
-  googleCalendarApi(connectionAccessToken(connection));
+  googleCalendarApi(connectionAccessToken(connection), fetch, limiterFor(connection.id));

@@ -9,7 +9,9 @@ name: Export jobs
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    # Every 30 minutes, at 7 and 37 past: GitHub delays (or drops) scheduled runs at
+    # busy times, the start of every hour most of all.
+    - cron: "7,37 * * * *"
   workflow_dispatch:
 
 permissions: {}

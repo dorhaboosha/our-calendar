@@ -18,6 +18,7 @@ describe("appConfig", () => {
 
   it("uses lower-case 6-digit hex for every color", () => {
     const colors = [
+      appConfig.themeColor,
       appConfig.sharedColor,
       ...appConfig.users.map((user) => user.defaultColor),
       ...appConfig.categories.map((category) => category.color),

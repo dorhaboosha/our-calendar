@@ -1,4 +1,5 @@
 import {
+  type ChangedOccurrence,
   type GoogleCalendarApi,
   GoogleApiError,
   type NewCalendar,
@@ -22,7 +23,8 @@ type Operation =
   | "calendarExists"
   | "insertEvent"
   | "updateEvent"
-  | "deleteEvent";
+  | "deleteEvent"
+  | "listChangedOccurrences";
 
 export class FakeGoogle implements GoogleCalendarApi {
   calendars = new Map<string, Calendar>();
@@ -101,6 +103,17 @@ export class FakeGoogle implements GoogleCalendarApi {
     } else throw new GoogleApiError(404, "notFound");
   }
 
+  async listChangedOccurrences(calendarId: string): Promise<ChangedOccurrence[]> {
+    this.call("listChangedOccurrences", calendarId);
+    const { events } = this.calendar(calendarId);
+    return [...events.keys()]
+      .filter((id) => id.includes("_"))
+      .map((id) => {
+        const [seriesId, stamp] = id.split("_");
+        return { seriesId, originalStart: fromStamp(stamp) };
+      });
+  }
+
   // ---- What the user does by hand in Google ----
 
   only(): Calendar {
@@ -121,7 +134,35 @@ export class FakeGoogle implements GoogleCalendarApi {
     this.event(eventId)!.status = "cancelled";
   }
 
+  /** Changes one occurrence of a series (by its instance id) in Google only. */
+  editOccurrenceByHand(instanceId: string, changes: Partial<GoogleEvent>) {
+    const calendar = this.only();
+    const series = this.seriesOf(calendar, instanceId)!;
+    const current = calendar.events.get(instanceId) ?? {
+      ...structuredClone(series),
+      id: instanceId,
+      recurrence: undefined,
+      recurringEventId: series.id,
+    };
+    calendar.events.set(instanceId, { ...current, ...changes, status: "confirmed" });
+  }
+
+  /** Deletes one occurrence of a series (by its instance id) in Google only. */
+  deleteOccurrenceByHand(instanceId: string) {
+    const calendar = this.only();
+    if (!this.seriesOf(calendar, instanceId)) throw new Error("Not an occurrence");
+    calendar.events.set(instanceId, { status: "cancelled" } as Stored);
+  }
+
   deleteCalendarByHand() {
     this.calendars.clear();
   }
+}
+
+/** An instance id's start ("20261105T170000Z", or "20261105" all day), as the app has it. */
+function fromStamp(stamp: string): string {
+  const date = `${stamp.slice(0, 4)}-${stamp.slice(4, 6)}-${stamp.slice(6, 8)}`;
+  if (stamp.length === 8) return date;
+  const time = `${stamp.slice(9, 11)}:${stamp.slice(11, 13)}:${stamp.slice(13, 15)}`;
+  return new Date(`${date}T${time}Z`).toISOString();
 }

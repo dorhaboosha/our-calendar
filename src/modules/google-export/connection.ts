@@ -68,10 +68,10 @@ async function currentConnection(userId: string) {
 
 /**
  * "Export again": every event is sent to Google again, which also undoes changes made
- * there by hand to an event, or brings it back if deleted. Not one occurrence of a
- * series changed by hand there: nothing is read from Google, and only occurrences
- * changed in the app are sent. After the calendar was deleted in Google, it is created
- * again (empty) first. Not while the access has to be granted again.
+ * there by hand to an event, or brings it back if deleted; also to one occurrence of a
+ * series (the full export asks Google which occurrences have changes of their own).
+ * After the calendar was deleted in Google, it is created again (empty) first. Not
+ * while the access has to be granted again.
  */
 export async function exportAgain(userId: string): Promise<ExportActionResult> {
   const connection = await currentConnection(userId);
@@ -181,6 +181,13 @@ export type ExportState =
 export type ExportStatus = {
   state: ExportState;
   pending: number;
+  /** Events still to export, for the progress shown while exporting. */
+  pendingEvents: number;
+  /**
+   * Whether jobs are due now, so the export is running (or about to): not only retries
+   * waiting for later. The settings page follows the progress while it is.
+   */
+  running: boolean;
   /** Events whose export stopped after failing, until "export again". */
   failed: number;
   /**
@@ -194,7 +201,7 @@ export type ExportStatus = {
   canDeleteCalendar: boolean;
 };
 
-export async function getExportStatus(userId: string): Promise<ExportStatus> {
+export async function getExportStatus(userId: string, now = new Date()): Promise<ExportStatus> {
   const connection = await prisma.googleConnection.findUnique({
     where: { userId },
     include: { target: true },
@@ -202,6 +209,8 @@ export async function getExportStatus(userId: string): Promise<ExportStatus> {
   const target = connection?.target;
   const none = {
     pending: 0,
+    pendingEvents: 0,
+    running: false,
     failed: 0,
     setupFailed: null,
     lastSuccessfulExportAt: null,
@@ -216,16 +225,22 @@ export async function getExportStatus(userId: string): Promise<ExportStatus> {
   ) {
     return { state: "notConnected", ...none };
   }
-  const counts = await prisma.exportJob.groupBy({
-    by: ["status", "type"],
-    where: { exportTargetId: target.id },
-    _count: true,
-  });
+  const [counts, due] = await Promise.all([
+    prisma.exportJob.groupBy({
+      by: ["status", "type"],
+      where: { exportTargetId: target.id },
+      _count: true,
+    }),
+    prisma.exportJob.count({
+      where: { exportTargetId: target.id, status: "PENDING", nextAttemptAt: { lte: now } },
+    }),
+  ]);
   const count = (status: "PENDING" | "FAILED", types?: string[]) =>
     counts
       .filter((row) => row.status === status && (!types || types.includes(row.type)))
       .reduce((sum, row) => sum + row._count, 0);
   const pending = count("PENDING");
+  const pendingEvents = count("PENDING", ["SYNC_EVENT"]);
   const failed = count("FAILED", ["SYNC_EVENT"]);
   const setupFailed =
     count("FAILED", ["CREATE_CALENDAR", "FULL_RECONCILE"]) === 0
@@ -246,6 +261,8 @@ export async function getExportStatus(userId: string): Promise<ExportStatus> {
   return {
     state,
     pending,
+    pendingEvents,
+    running: state === "exporting" && due > 0,
     failed,
     setupFailed,
     lastSuccessfulExportAt: target.lastSuccessfulExportAt,

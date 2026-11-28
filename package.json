@@ -17,6 +17,7 @@
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate dev && prisma generate",
     "db:studio": "prisma studio",
+    "db:backup": "node scripts/backup-db.mjs",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
@@ -57,5 +58,9 @@
     "prisma": "^7.10.1",
     "typescript": "^5",
     "vitest": "^5.0.5"
+  },
+  "overrides": {
+    "effect": "3.22.4",
+    "typescript-eslint": "8.73.0"
   }
 }
