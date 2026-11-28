@@ -202,9 +202,10 @@ const text = (changed: string | null, ofSeries: string | null) =>
 
 /**
  * The updates a series' occurrences need in Google, and which occurrences will then
- * have changes of their own there (to pass back as exported next time). exported: the
- * original starts of the occurrences exported with changes last time. An exception whose
- * occurrence is no longer part of the series is ignored, as in the app.
+ * have changes of their own there (to pass back as exported next time, sorted).
+ * exported: the original starts of the occurrences exported with changes, or set back,
+ * before. An exception whose occurrence is no longer part of the series is ignored, as
+ * in the app.
  */
 export function instanceUpdates(
   event: ExportEvent,
@@ -259,15 +260,21 @@ export function instanceUpdates(
     });
   }
 
+  // Occurrences exported with changes before that no longer have any: set back to the
+  // series' values. Google keeps them as occurrences with changes of their own, so they
+  // stay on the list: a later change to the series sets them again, and a change to its
+  // times cancels them, instead of Google keeping an old copy. Ones no longer part of the
+  // series are cancelled, and leave the list.
   const current = new Set(nowExported);
   for (const originalStart of exported) {
     if (current.has(originalStart)) continue;
     const original = occurrenceAt(series, originalStart);
-    updates.push(
-      original
-        ? { kind: "change", instance: instance(original, event, original) }
-        : { kind: "cancel", instanceId: instanceId(seriesId, originalStart) },
-    );
+    if (original) {
+      updates.push({ kind: "change", instance: instance(original, event, original) });
+      nowExported.push(original.start);
+    } else {
+      updates.push({ kind: "cancel", instanceId: instanceId(seriesId, originalStart) });
+    }
   }
-  return { updates, exported: nowExported };
+  return { updates, exported: nowExported.sort() };
 }

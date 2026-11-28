@@ -68,6 +68,7 @@ const TIME_FORMAT = { hour: "2-digit", minute: "2-digit", hour12: false } as con
 // Timed events in the month view as colored blocks, like all-day events, not dots.
 const EVENT_DISPLAY = "block";
 const OWNER_KEYS = [...appConfig.users.map((user) => user.key), SHARED_OWNER];
+const ignoreFailure = () => {};
 
 /** A filtered-out event stays loaded, with display "none". */
 function displayFor(event: CalendarEvent, filters: CalendarFilters) {
@@ -263,24 +264,42 @@ export function Calendar({
     [pickedDate],
   );
 
+  // The latest load: an earlier one that ends after it doesn't report how it went.
+  const latestLoad = useRef(0);
+
   // Loads the events of the dates on screen; FullCalendar calls it on every navigation.
   const fetchEvents = useCallback(
     async (info: EventSourceFuncInfo): Promise<EventInput[]> => {
+      const load = ++latestLoad.current;
+      const isLatest = () => load === latestLoad.current;
       refresher.loadStarted();
       const query = new URLSearchParams({
         start: info.start.toISOString(),
         end: info.end.toISOString(),
       });
-      const response = await fetch(`/api/events?${query}`, { cache: "no-store" });
-      if (response.status === 401) {
-        // The session ended (expired, or signed out in another tab).
-        window.location.replace("/login");
-        return [];
+      let events: CalendarEvent[];
+      try {
+        const response = await fetch(`/api/events?${query}`, { cache: "no-store" });
+        if (response.status === 401) {
+          // The session ended (expired, or signed out in another tab).
+          window.location.replace("/login");
+          return [];
+        }
+        if (!response.ok) throw new Error(`GET /api/events: ${response.status}`);
+        ({ events } = (await response.json()) as { events: CalendarEvent[] });
+      } catch (error) {
+        // A failed load (no connection, or the server down or waking up): the notice
+        // under the header says so until a retry works.
+        if (isLatest()) {
+          refresher.loadFailed();
+          reportRequest(false);
+        }
+        throw error;
       }
-      if (!response.ok) throw new Error(`GET /api/events: ${response.status}`);
-      const { events } = (await response.json()) as { events: CalendarEvent[] };
-      refresher.loadSucceeded();
-      reportRequest(true);
+      if (isLatest()) {
+        refresher.loadSucceeded();
+        reportRequest(true);
+      }
       return events.map((event) => {
         const color = ownerColors[event.owner] ?? appConfig.sharedColor;
         return {
@@ -298,13 +317,6 @@ export function Calendar({
     },
     [ownerColors, refresher],
   );
-
-  // A failed load (no connection, or the server down or waking up): the notice under
-  // the header says so until a retry works.
-  const onLoadFailed = useCallback(() => {
-    refresher.loadFailed();
-    reportRequest(false);
-  }, [refresher]);
 
   // Time, title, and the category as text, so meaning never depends on color alone.
   const renderEvent = useCallback(
@@ -433,7 +445,8 @@ export function Calendar({
             end: "dayGridMonth,timeGridWeek,timeGridDay",
           }}
           events={fetchEvents}
-          eventSourceFailure={onLoadFailed}
+          // Failures are handled in fetchEvents; this keeps FullCalendar from logging them.
+          eventSourceFailure={ignoreFailure}
           eventContent={renderEvent}
           dayCellClass={pickedDateClass}
           dayLaneClass={pickedDateClass}

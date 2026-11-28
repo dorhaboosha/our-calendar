@@ -293,7 +293,8 @@ describe("exporting", () => {
 describe("occurrences changed by hand in Google", () => {
   it("export again undoes them, and keeps the app's own changes", async () => {
     const targetId = await connected();
-    const series = await create({ repeat: { frequency: "daily", end: "never" } });
+    const daily = { frequency: "daily", end: "never" } as const;
+    const series = await create({ repeat: daily });
     const occurrence = (day: string) => `${series.googleId}_202611${day}T170000Z`;
     await updateEvent(
       series.id,
@@ -331,14 +332,45 @@ describe("occurrences changed by hand in Google", () => {
     expect(google.event(occurrence("09"))).toMatchObject(seriesValues("09"));
     // Changed in the app too: the app's version.
     expect(google.event(occurrence("06"))).toMatchObject({ summary: "מאוחר" });
-    // Only the app's own changes are kept as the series' changed occurrences.
-    expect(
+    // Google keeps the ones set back as occurrences of their own, so they stay on the
+    // series' list.
+    const exportedOccurrences = async () =>
       (
         await prisma.eventExportMapping.findFirstOrThrow({
           where: { googleEventId: series.googleId },
         })
-      ).exportedOccurrences,
-    ).toEqual(["2026-11-06T17:00:00.000Z"]);
+      ).exportedOccurrences;
+    expect(await exportedOccurrences()).toEqual([
+      "2026-11-06T17:00:00.000Z",
+      "2026-11-08T17:00:00.000Z",
+      "2026-11-09T17:00:00.000Z",
+    ]);
+    expect(await jobs()).toEqual([]);
+
+    // A later change to the series reaches them too.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({ title: "ארוחה", repeat: daily }),
+      dorId,
+    );
+    await runAll();
+    expect(google.event(occurrence("08"))).toMatchObject({ summary: "ארוחה" });
+    expect(google.event(occurrence("09"))).toMatchObject({ summary: "ארוחה" });
+    expect(google.event(occurrence("06"))).toMatchObject({ summary: "מאוחר" });
+
+    // New times: no old copy is left behind.
+    await updateEvent(
+      series.id,
+      await version(series.id),
+      draft({ title: "ארוחה", repeat: daily, startTime: "20:00", endTime: "22:00" }),
+      dorId,
+    );
+    await runAll();
+    for (const day of ["06", "08", "09"]) {
+      expect(google.event(occurrence(day))).toMatchObject({ status: "cancelled" });
+    }
+    expect(await exportedOccurrences()).toEqual([]);
     expect(await jobs()).toEqual([]);
   });
 

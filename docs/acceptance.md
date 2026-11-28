@@ -42,7 +42,8 @@ check on the live site. Gone through on **2026-11-28**, at the end of Phase 5.
    mode: the notice shows, and goes once the connection is back.
 3. In Google, edit one occurrence of a repeating event and delete another; "export
    again" sets both back (Google's real listing of changed occurrences, and PUT bringing
-   back a deleted occurrence).
+   back a deleted occurrence). Then change the series' title in the app: both
+   occurrences take the new title too.
 4. "Export again" with every event: how long it takes, and the count going down.
 5. Rename the app on Google's consent screen to OurCalendar (name only).
 6. A few days after merging: the scheduled export runs at 7 and 37 minutes past, and how

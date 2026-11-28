@@ -248,7 +248,8 @@ describe("a series' occurrences in Google", () => {
           }),
         },
       ],
-      exported: [],
+      // Google keeps it as an occurrence of its own: later changes to the series set it too.
+      exported: ["2026-11-06T08:00:00.000Z"],
     });
   });
 

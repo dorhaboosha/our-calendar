@@ -10,8 +10,10 @@
 // never shows in a command line or in the output.
 
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { createWriteStream, mkdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pipeline } from "node:stream/promises";
 import "dotenv/config";
 
 // pg_dump must be at least as new as the server: the Neon project runs Postgres 16, like
@@ -25,8 +27,17 @@ if (!process.env.BACKUP_DATABASE_URL) {
 
 const directory = "backups";
 mkdirSync(directory, { recursive: true });
-const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "-");
+const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
 const file = join(directory, `our-calendar-${stamp}.dump`);
+
+// "wx": never overwrites an earlier backup; a second run in the same second stops here.
+const output = createWriteStream(file, { flags: "wx" });
+try {
+  await once(output, "open");
+} catch (error) {
+  console.error(`Couldn't create ${file}: ${error.message}`);
+  process.exit(1);
+}
 
 const dump = spawn(
   "docker",
@@ -42,13 +53,17 @@ const dump = spawn(
   ],
   { stdio: ["ignore", "pipe", "inherit"] },
 );
-dump.stdout.pipe(createWriteStream(file));
-dump.on("close", (code) => {
-  if (code !== 0) {
-    // A partial dump would look like a backup; don't keep it.
-    rmSync(file, { force: true });
-    console.error(`pg_dump failed (exit code ${code}); no backup was written.`);
-    process.exit(1);
-  }
-  console.log(`Backed up to ${file} (${Math.round(statSync(file).size / 1024)} KB).`);
-});
+
+try {
+  // Done only when pg_dump exited and every byte is written to the file.
+  const [, [code]] = await Promise.all([pipeline(dump.stdout, output), once(dump, "close")]);
+  if (code !== 0) throw new Error(`pg_dump failed (exit code ${code})`);
+} catch (error) {
+  dump.kill();
+  output.destroy();
+  // A partial dump would look like a backup; don't keep it.
+  rmSync(file, { force: true });
+  console.error(`${error.message}; no backup was written.`);
+  process.exit(1);
+}
+console.log(`Backed up to ${file} (${Math.round(statSync(file).size / 1024)} KB).`);

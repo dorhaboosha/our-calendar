@@ -123,18 +123,36 @@ Measured use is recorded below and in the spec's decision log when checked.
   - **A backup is secret:** it holds the users' emails, their sessions and the export's
     refresh tokens (encrypted with `TOKEN_ENCRYPTION_KEY`). Keep it on your own
     computer only.
-- **Restoring:** first into a new database to check it (a new Neon branch, or the local
-  Docker database), then into production only if needed. Set `RESTORE_DATABASE_URL` in
-  the shell to the target's direct connection string, then:
+- **Restoring:** always into a new, empty database, never over the one the app uses.
+  Check it, and only then switch the app to it.
+  1. Create an empty database: Neon Console > the project > the production branch >
+     Databases > New database (for example `restore_20261128`). To try a backup out,
+     the local Docker database works too.
+  2. Restore into it. `read -rs` takes its **direct** connection string without showing
+     it or keeping it in the shell's history; `export` passes it on to Docker:
 
-  ```sh
-  docker run --rm -e RESTORE_DATABASE_URL -v "$PWD/backups:/backups" postgres:16 \
-    sh -c 'pg_restore --no-owner --no-privileges --clean --if-exists \
-           --dbname="$RESTORE_DATABASE_URL" /backups/our-calendar-<date>.dump'
-  ```
+     ```sh
+     read -rs RESTORE_DATABASE_URL && export RESTORE_DATABASE_URL
+     docker run --rm -e RESTORE_DATABASE_URL -v "$PWD/backups:/backups" postgres:16 \
+       sh -c 'pg_restore --no-owner --no-privileges --single-transaction \
+              --dbname="$RESTORE_DATABASE_URL" /backups/our-calendar-<date>.dump'
+     unset RESTORE_DATABASE_URL
+     ```
 
-  `--clean --if-exists` replaces what is in the target. Tested on 2026-11-27: a backup
-  of the local database restored into an empty one with the same row counts.
+     `--single-transaction`: the first error rolls the whole restore back, so the
+     database is either fully restored or left as it was.
+  3. Check it: the tables and their row counts (`user`, `event`, `event_exception`,
+     `google_export_target`), and the latest events.
+  4. Switch production to it. First stop everything that writes to the old database:
+     disable Actions > Export jobs, and suspend the service in Render. Then, in Render >
+     the service > Environment, point `DATABASE_URL` (pooled) and `DIRECT_URL` (direct)
+     at the new database, and resume the service; its build runs the migrations, which
+     are already applied. Check the app, then enable Export jobs again. Keep the old
+     database until you are sure.
+
+  Tested on 2026-11-28 with the local database: a backup restored into an empty
+  database with the same row counts, and restoring it again into the now full database
+  failed at the first object and changed nothing.
 - The image is `postgres:16` because the Neon project runs Postgres 16; `pg_dump` must be
   at least as new as the server. If Neon's version is raised, raise the image too (here
   and in the script).
